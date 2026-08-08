@@ -31,6 +31,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Prepare writable config directory
+        run: |
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /config
+
       - name: Run tests
         run: |
           python -m pytest
