@@ -261,6 +261,79 @@ _PROVIDER_KEY_MAP = {
 }
 
 
+def filter_destination_add_candidates(
+    dst_ops: Any,
+    *,
+    cfg: Mapping[str, Any],
+    feature: str,
+    items: list[dict[str, Any]],
+    emit,
+    dbg,
+    dst_name: str,
+) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]]]:
+    """Let the destination drop items it can prove are outside its write scope."""
+    rows = [dict(item) for item in (items or []) if isinstance(item, Mapping)]
+    hook = getattr(dst_ops, "filter_add_candidates", None)
+    if not rows or not callable(hook):
+        return rows, 0, []
+
+    try:
+        result = hook(cfg, feature=feature, items=rows)
+    except Exception as exc:
+        dbg(
+            "add_candidates.filter_failed",
+            dst=dst_name,
+            feature=feature,
+            error=str(exc),
+        )
+        return rows, 0, []
+
+    if not isinstance(result, Mapping) or not isinstance(result.get("items"), (list, tuple)):
+        dbg(
+            "add_candidates.filter_invalid",
+            dst=dst_name,
+            feature=feature,
+        )
+        return rows, 0, []
+
+    kept = [dict(item) for item in result.get("items") or [] if isinstance(item, Mapping)]
+    skipped = max(0, len(rows) - len(kept))
+    if not skipped:
+        return kept, 0, []
+
+    skipped_items: list[dict[str, Any]] = []
+    raw_skipped = result.get("skipped")
+    if isinstance(raw_skipped, (list, tuple)):
+        for entry in raw_skipped:
+            if not isinstance(entry, Mapping):
+                continue
+            item = entry.get("item")
+            if isinstance(item, Mapping):
+                skipped_items.append(dict(item))
+            else:
+                skipped_items.append(dict(entry))
+
+    raw_reasons = result.get("reason_counts")
+    reason_counts: dict[str, int] = {}
+    if isinstance(raw_reasons, Mapping):
+        for reason, count in raw_reasons.items():
+            try:
+                reason_counts[str(reason)] = int(count or 0)
+            except (TypeError, ValueError):
+                continue
+
+    emit(
+        "add_candidates:filtered",
+        dst=dst_name,
+        feature=feature,
+        before=len(rows),
+        after=len(kept),
+        skipped=skipped,
+        reason_counts=reason_counts,
+    )
+    return kept, skipped, skipped_items
+
+
 def _rekey_index_to_match_other_keys(
     idx0: Mapping[str, Any],
     other0: Mapping[str, Any],
@@ -1530,6 +1603,32 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
             )
             ctx.stats_manual_blocked = int(getattr(ctx, "stats_manual_blocked", 0) or 0) + int(manual_blocked)
 
+    dry_run_flag = bool(ctx.dry_run or sync_cfg.get("dry_run", False))
+    adds, add_candidates_skipped, add_candidates_skipped_items = filter_destination_add_candidates(
+        dst_ops,
+        cfg=provider_cfg,
+        feature=feature,
+        items=adds,
+        emit=emit,
+        dbg=dbg,
+        dst_name=dst,
+    )
+    if add_candidates_skipped_items and not dry_run_flag:
+        filtered_keys = [
+            key
+            for key in (_sync_key(item) for item in add_candidates_skipped_items)
+            if key
+        ]
+        if filtered_keys:
+            cleared = clear_unresolved(dst, feature, filtered_keys)
+            if int((cleared or {}).get("count", 0) or 0):
+                emit(
+                    "add_candidates:unresolved_cleared",
+                    dst=dst,
+                    feature=feature,
+                    count=int(cleared.get("count", 0) or 0),
+                )
+
     try:
         unresolved_known = set(load_unresolved_keys(dst, feature, cross_features=_cross_feature_unresolved(feature)) or [])
     except Exception:
@@ -1607,7 +1706,6 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
         "errors": 0,
     }
     unresolved_new_total = 0
-    dry_run_flag = bool(ctx.dry_run or sync_cfg.get("dry_run", False))
     verify_after_write = bool(sync_cfg.get("verify_after_write", False))
     post_apply_add_res: dict[str, Any] | None = None
 
@@ -2086,7 +2184,7 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
         "updated": int(updated_effective),
         "added": int(added_effective),
         "removed": int(removed_count),
-        "skipped": int((res_update or {}).get("skipped", 0)) + int((res_add or {}).get("skipped", 0)) + int((res_remove or {}).get("skipped", 0)),
+        "skipped": int(add_candidates_skipped) + int((res_update or {}).get("skipped", 0)) + int((res_add or {}).get("skipped", 0)) + int((res_remove or {}).get("skipped", 0)),
         "unresolved": unresolved_total,
         "errors": int((res_update or {}).get("errors", 0)) + int((res_add or {}).get("errors", 0)) + int((res_remove or {}).get("errors", 0)),
         "skipped_exact": int((res_update or {}).get("skipped_exact", 0)) + int((res_add or {}).get("skipped_exact", 0)),

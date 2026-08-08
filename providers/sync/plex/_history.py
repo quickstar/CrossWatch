@@ -558,6 +558,59 @@ def build_catalog_from_entries(entries: Iterable[Mapping[str, Any]]) -> HistoryC
     return cat
 
 
+def filter_add_candidates(
+    adapter: Any,
+    items: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Keep Plex history writes that can resolve to the current target library.
+
+    Missing library items are expected for cross-provider history and are therefore
+    skipped without becoming unresolved. The filter is stateless, so a later run
+    will reconsider an item after it has been added to Plex.
+    """
+    rows = [dict(item) for item in (items or []) if isinstance(item, Mapping)]
+    if not rows:
+        return {"items": [], "skipped_count": 0, "reason_counts": {}}
+
+    allow = plex_feature_library_ids(adapter, "history")
+    catalog = _get_history_catalog(adapter, allow)
+
+    if any(str(item.get("type") or "").strip().lower() in {"episode", "anime"} for item in rows):
+        if _populate_catalog_episode_leaves(adapter, allow, catalog):
+            _store_history_catalog(adapter, allow, catalog)
+
+    definite_misses = {
+        CLASS_NOT_IN_PLEX_CATALOG,
+        CLASS_SHOW_MATCHED_EPISODE_MISSING,
+    }
+    kept: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    reason_counts: dict[str, int] = {}
+
+    for item in rows:
+        _rating_key, classification = catalog.resolve(item, strict=True)
+        if classification not in definite_misses:
+            kept.append(item)
+            continue
+
+        reason_counts[classification] = reason_counts.get(classification, 0) + 1
+        skipped.append(
+            {
+                # Keep the complete normalized item so the orchestrator can derive
+                # the same episode key when clearing an older unresolved record.
+                "item": dict(item),
+                "reason": classification,
+            }
+        )
+
+    return {
+        "items": kept,
+        "skipped": skipped,
+        "skipped_count": len(skipped),
+        "reason_counts": reason_counts,
+    }
+
+
 def _emit(evt: dict[str, Any]) -> None:
     emit(evt, default_feature="history")
 
