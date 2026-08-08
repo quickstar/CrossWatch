@@ -66,6 +66,12 @@ def test_filter_events_and_collapse_latest_preserve_existing_behavior() -> None:
     assert next(iter(collapsed.values()))["watched_at"] == "2024-01-02T00:00:00Z"
 
 
+def test_filter_events_still_drops_timestamp_free_synthetic_items() -> None:
+    item = _episode("")
+
+    assert filter_history_events({history_sync_key(item): item}, event_mode=False) == {}
+
+
 def test_event_diff_compares_exact_history_identity() -> None:
     first = _episode("2024-01-01T00:00:00Z")
     second = _episode("2024-01-02T00:00:00Z")
