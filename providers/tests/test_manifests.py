@@ -20,8 +20,8 @@ CASES: tuple[ProviderCase, ...] = (
     ProviderCase(
         module_path="sync._mod_CROSSWATCH",
         expected_name="CROSSWATCH",
-        minimal_cfg={"crosswatch": {"enabled": True}},
-        empty_configured=True,
+        minimal_cfg={"crosswatch": {"enabled": True, "connected": True}},
+        empty_configured=False,
     ),
     ProviderCase(
         module_path="sync._mod_ANILIST",

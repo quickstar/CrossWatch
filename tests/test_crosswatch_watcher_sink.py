@@ -133,6 +133,7 @@ def test_scrobbler_route_modal_lists_crosswatch_sink() -> None:
     assert '"crosswatch"' in text.split("const ratingSinks")[1].split("]")[0]
     assert 'crosswatch: "CrossWatch"' in text
     assert "window.CW?.ProviderMeta?.logoPath?.(provider)" in text
+    assert "providerIcon(r.sink)" in text
     assert ".scrm-provider-card.provider-crosswatch" in css
     assert ".scrm-provider-card.provider-crosswatch::after{background-image:url(/assets/img/CROSSWATCH.svg)}" in css
     assert "providerMeta().logoPath?.(v)" in scrobbler

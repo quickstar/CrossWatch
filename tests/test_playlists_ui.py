@@ -26,6 +26,7 @@ def test_playlists_assets_exist():
 
 def test_playlists_page_is_modal_first_overview():
     js = (REPO / "assets" / "js" / "playlists.js").read_text(encoding="utf-8")
+    css = (REPO / "assets" / "css" / "pages.css").read_text(encoding="utf-8")
     assert "Playlist endpoints" in js
     assert "Mappings" in js
     assert "Activity overview" in js
@@ -41,17 +42,17 @@ def test_playlists_page_is_modal_first_overview():
     assert "pl-ep-editor" not in js
     assert "pl-map-editor" not in js
     assert '<header class="pl-header">' not in js
-    assert "#page-playlists .pl-header{position:static;" in js
-    assert "padding:18px 20px" in js
-    assert "#page-playlists .pl-title{margin:0;font-size:28px;line-height:1.1;font-weight:850" in js
-    assert "#page-playlists .pl-sub{margin-top:6px;color:var(--pl-soft);font-size:16px" in js
-    assert "#page-playlists .pl-header .pl-btn{min-height:0;padding:10px 14px;border-radius:10px;font-size:14px;font-weight:850;gap:8px}" in js
+    assert "#page-playlists .pl-header{display:flex;" in css
+    assert "padding:18px 20px" in css
+    assert "#page-playlists .pl-title{margin:0;font-size:28px;line-height:1.1;font-weight:850" in css
+    assert "#page-playlists .pl-sub{margin-top:6px;color:var(--pl-soft);font-size:16px" in css
+    assert "#page-playlists .pl-header .pl-btn{min-height:0;padding:10px 14px;border-radius:10px;font-size:14px;font-weight:850;gap:8px" in css
     assert '<button class="pl-btn" id="pl-new-endpoint"><span class="material-symbols-rounded" aria-hidden="true">add</span>New endpoint</button>' in js
     assert '<button class="pl-btn" id="pl-new-mapping"' in js
-    assert "--pl-shell-bg" in js
-    assert "--pl-shell-bg:#171d26" in js
-    assert 'html[data-cw-theme="flat-dark"] #page-playlists' in js
-    assert 'html[data-cw-theme="flat-light"] #page-playlists' in js
+    assert "--pl-shell-bg" in css
+    assert "--pl-shell-bg:#171d26" in css
+    assert 'html[data-cw-theme="flat-dark"] #page-playlists' in css
+    assert 'html[data-cw-theme="flat-light"] #page-playlists' in css
 
 
 def test_playlists_modals_cover_create_edit_delete_flows():
@@ -128,12 +129,13 @@ def test_playlists_provider_and_experimental_banners():
 
 def test_endpoint_and_mapping_tables_use_compact_icon_actions():
     js = (REPO / "assets" / "js" / "playlists.js").read_text(encoding="utf-8")
+    css = (REPO / "assets" / "css" / "pages.css").read_text(encoding="utf-8")
     assert "function endpointRef" in js
     assert "function mappingTargetRefs" in js
     assert "function actionButton" in js
-    assert ".pl-action-btn.sync" in js
-    assert ".pl-action-btn.edit" in js
-    assert ".pl-action-btn.delete" in js
+    assert ".pl-action-btn.sync" in css
+    assert ".pl-action-btn.edit" in css
+    assert ".pl-action-btn.delete" in css
     assert '<select id="pl-map-targets">${selectOptions(endpointOpts, target)}</select>' in js
     assert '<select id="pl-map-targets" multiple' not in js
     assert 'target_endpoints: val("#pl-map-targets", root) ? [val("#pl-map-targets", root)] : []' in js
@@ -145,23 +147,23 @@ def test_endpoint_and_mapping_tables_use_compact_icon_actions():
 
 
 def test_playlist_modals_use_styled_scrollbars_and_muted_selection():
-    js = (REPO / "assets" / "js" / "playlists.js").read_text(encoding="utf-8")
-    assert "--pl-scroll-track" in js
-    assert "--pl-scroll-thumb" in js
-    assert "--pl-select-active-bg" in js
-    assert ".pl-dialog-body::-webkit-scrollbar" in js
-    assert ".pl-dialog .pl-table-wrap::-webkit-scrollbar" in js
-    assert ".pl-field select[multiple]::-webkit-scrollbar" in js
-    assert "max-height:min(34vh,260px)" in js
-    assert "box-shadow:inset 3px 0 0 var(--pl-green)" in js
-    assert "#4167b7" not in js
+    css = (REPO / "assets" / "css" / "pages.css").read_text(encoding="utf-8")
+    assert "--pl-scroll-track" in css
+    assert "--pl-scroll-thumb" in css
+    assert "--pl-select-active-bg" in css
+    assert ".pl-dialog-body::-webkit-scrollbar" in css
+    assert ".pl-dialog .pl-table-wrap::-webkit-scrollbar" in css
+    assert ".pl-field select[multiple]::-webkit-scrollbar" in css
+    assert "max-height:min(34vh,260px)" in css
+    assert "box-shadow:inset 3px 0 0 var(--pl-green)" in css
+    assert "#4167b7" not in css
 
 
 def test_pair_overlay_playlist_manage_button_requires_enabled_playlist_feature():
     js = (REPO / "assets" / "js" / "connections.pairs.overlay.js").read_text(encoding="utf-8")
     assert "const hasPlaylistMappings" in js
     assert "window.cxOpenPlaylistMappingsForPair = openPlaylistMappingsForPair" in js
-    assert '${hasPlaylistMappings(f.playlists) ? `<button class="icon-btn" data-tip="Manage playlist mappings"' in js
+    assert '${showPlaylistMappingButton && hasPlaylistMappings(f.playlists) ? `<button type="button" class="icon-btn" data-tip="Manage playlist mappings"' in js
     assert '${f.playlists ? `<button class="icon-btn" data-tip="Manage playlist mappings"' not in js
     assert "window.showTab(\"playlists\")" in js
     assert "api?.openMappingForPair" in js
@@ -189,9 +191,9 @@ def test_main_hub_treats_playlists_as_first_class_feature():
     assert 'const getDisplayFeats = () => FEATS' in main
     assert 'enabled.progress ? "progress" : "playlists"' not in main
     assert "lanes-count-${displayFeats.length}" in main
-    assert ".lanes.lanes-count-5{grid-template-columns:repeat(6,minmax(0,1fr))}" in css
-    assert ".lanes.lanes-count-5>.lane:nth-child(-n+2){grid-column:span 3}" in css
-    assert ".lanes.lanes-count-5>.lane:nth-child(n+3){grid-column:span 2}" in css
+    assert ".lanes{grid-template-columns:repeat(6,minmax(0,1fr))}" in css
+    assert ".lanes>.lane-size-large{grid-column:span 3}" in css
+    assert ".lanes>.lane-size-small{grid-column:span 2}" in css
 
 
 def test_insights_settings_enables_playlist_statistics():
@@ -202,7 +204,8 @@ def test_insights_settings_enables_playlist_statistics():
     assert "Show playlist sync tiles." in modal
     assert "Not supported currently." not in modal
     assert "key === \"playlists\"" not in modal
-    assert 'seg.dataset.count = String(Math.max(1, _visibleFeats.length))' in insights
+    assert "const featCount = Math.max(1, _visibleFeats.length)" in insights
+    assert "seg.dataset.count = String(featCount)" in insights
 
 
 def test_insights_playlist_statistics_use_endpoint_counts():
@@ -232,7 +235,8 @@ def test_insights_main_load_uses_lightweight_stats_first():
     assert 'if sample_limit > 0:' in api
     assert "samples = []" in api
     assert "history_limit = max(0, int(history))" in api
-    assert "if history_limit > 0 else []" in api
+    assert "if history_limit > 0:" in api
+    assert "rows = list_reports(" in api
 
 
 def test_playlist_runner_emits_live_summary_events():

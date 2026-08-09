@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from cw_platform.anime_mapping.service import mapped_or_default_media_type
+from cw_platform.config_base import CONFIG_BASE
 from cw_platform.id_map import canonical_key, ids_from, minimal as id_minimal
 
-STATE_DIR = Path("/config/.cw_state")
+STATE_DIR = CONFIG_BASE() / ".cw_state"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
