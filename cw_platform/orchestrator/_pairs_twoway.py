@@ -9,7 +9,17 @@ import os
 import re
 import datetime as _dt
 
-from ._pairs_oneway import _emit_item_failures, _emit_item_resolutions, compute_effective_add, compute_effective_remove, is_remove_retry_reason, load_feature_state, resolve_baseline_writes, select_baseline_keys
+from ._pairs_oneway import (
+    _emit_item_failures,
+    _emit_item_resolutions,
+    compute_effective_add,
+    compute_effective_remove,
+    filter_destination_add_candidates,
+    is_remove_retry_reason,
+    load_feature_state,
+    resolve_baseline_writes,
+    select_baseline_keys,
+)
 
 try:
     from ._pairs_oneway import (
@@ -123,7 +133,7 @@ from ._pairs_utils import (
     filter_manual_block as _filter_manual_block,
 )
 
-from ._blackbox import load_blackbox_keys, record_attempts, record_success
+from ._blackbox import clear_blackbox, load_blackbox_keys, record_attempts, record_success
 
 _PROVIDER_KEY_MAP = {
     "PLEX": "plex",
@@ -1651,28 +1661,6 @@ def _two_way_sync(  # pyright: ignore[reportGeneralTypeIssues]
     except Exception:
         pass
 
-    if feature != "watchlist":
-            add_to_A = apply_blocklist(
-                ctx.state_store,
-                add_to_A,
-                dst=a,
-                feature=feature,
-                pair_key=pair_key,
-                cross_feature_unresolved=_cross_feature_unresolved(feature),
-                ignore_pair_tomb=(str(feature or "").lower() in ("history", "ratings")),
-                emit=emit,
-            )
-            add_to_B = apply_blocklist(
-                ctx.state_store,
-                add_to_B,
-                dst=b,
-                feature=feature,
-                pair_key=pair_key,
-                cross_feature_unresolved=_cross_feature_unresolved(feature),
-                ignore_pair_tomb=(str(feature or "").lower() in ("history", "ratings")),
-                emit=emit,
-            )
-
     manual_blocked = 0
     if manual_blocks_A:
         pre_add, pre_rem = len(add_to_A), len(rem_from_A)
@@ -1699,6 +1687,60 @@ def _two_way_sync(  # pyright: ignore[reportGeneralTypeIssues]
             ctx.stats_manual_blocked = int(getattr(ctx, "stats_manual_blocked", 0) or 0) + int(manual_blocked)
         except Exception:
             pass
+
+    def _filter_destination(
+        dst_ops: Any,
+        dst_name: str,
+        items: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        filtered, skipped, skipped_items = filter_destination_add_candidates(
+            dst_ops,
+            cfg=provider_cfg,
+            feature=feature,
+            items=items,
+            emit=emit,
+            dbg=dbg,
+            dst_name=dst_name,
+            history_event_mode=history_event_mode,
+        )
+        if skipped_items and not dry_run_flag:
+            filtered_keys = [key for key in (_sync_key(item) for item in skipped_items) if key]
+            if filtered_keys:
+                cleared = clear_unresolved(dst_name, feature, filtered_keys)
+                clear_blackbox(dst_name, feature, filtered_keys, pair=pair_key)
+                if int((cleared or {}).get("count", 0) or 0):
+                    emit(
+                        "add_candidates:unresolved_cleared",
+                        dst=dst_name,
+                        feature=feature,
+                        count=int(cleared.get("count", 0) or 0),
+                    )
+        return filtered, skipped
+
+    add_to_A, add_candidates_skipped_A = _filter_destination(aops, a, add_to_A)
+    add_to_B, add_candidates_skipped_B = _filter_destination(bops, b, add_to_B)
+
+    if feature != "watchlist":
+        add_to_A = apply_blocklist(
+            ctx.state_store,
+            add_to_A,
+            dst=a,
+            feature=feature,
+            pair_key=pair_key,
+            cross_feature_unresolved=_cross_feature_unresolved(feature),
+            ignore_pair_tomb=(str(feature or "").lower() in ("history", "ratings")),
+            emit=emit,
+        )
+        add_to_B = apply_blocklist(
+            ctx.state_store,
+            add_to_B,
+            dst=b,
+            feature=feature,
+            pair_key=pair_key,
+            cross_feature_unresolved=_cross_feature_unresolved(feature),
+            ignore_pair_tomb=(str(feature or "").lower() in ("history", "ratings")),
+            emit=emit,
+        )
 
     bb = ((cfg or {}).get("blackbox") if isinstance(cfg, dict) else getattr(cfg, "blackbox", {})) or {}
     use_phantoms = bool(bb.get("enabled") and bb.get("block_adds", True))
@@ -2457,7 +2499,8 @@ def _two_way_sync(  # pyright: ignore[reportGeneralTypeIssues]
          rem_from_A=eff_rem_A,
          rem_from_B=eff_rem_B)
 
-    skipped_total = int(resA_upd.get("skipped", 0)) + int(resB_upd.get("skipped", 0)) + \
+    skipped_total = int(add_candidates_skipped_A) + int(add_candidates_skipped_B) + \
+                    int(resA_upd.get("skipped", 0)) + int(resB_upd.get("skipped", 0)) + \
                     int(resA_add.get("skipped", 0)) + int(resB_add.get("skipped", 0)) + \
                     int(resA_rem.get("skipped", 0)) + int(resB_rem.get("skipped", 0))
     errors_total = int(resA_upd.get("errors", 0)) + int(resB_upd.get("errors", 0)) + \

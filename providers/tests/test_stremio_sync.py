@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from cw_platform.orchestrator._history_rewatches import filter_history_events
 from providers.sync import _mod_STREMIO as mod
 from providers.sync.stremio import _common, _history, _progress, _ratings, _watchlist
 
@@ -171,6 +172,15 @@ def test_episode_history_read_does_not_expose_stremio_mtime_as_watched_at(monkey
     assert item["watched"] is True
     assert "watched_at" not in item
     assert item["_stremio_changed_at"] == "2026-07-30T19:53:20Z"
+
+
+def test_episode_history_read_survives_orchestrator_history_filter(monkeypatch) -> None:
+    monkeypatch.setattr(_history, "cinemeta_videos", lambda _adapter, _imdb: bb_videos())
+    adapter = FakeAdapter([series_record("tt0903747:1:1:6:eJxTYIACAAEpACE=")])
+
+    index = filter_history_events(_history.build_index(adapter), event_mode=False)
+
+    assert index["imdb:tt0903747#s01e01"]["watched_at"] == "2026-07-30T19:53:20Z"
 
 
 def test_history_write_resolves_imdb_with_tmdb_and_uses_metahub_poster(monkeypatch) -> None:
