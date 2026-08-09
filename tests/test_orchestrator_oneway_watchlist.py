@@ -83,6 +83,7 @@ def test_orchestrator_oneway_watchlist_add_then_observed_remove(
 ) -> None:
     src_items = {
         "imdb:tt01": {"type": "movie", "title": "A", "year": 2000, "ids": {"imdb": "tt01"}},
+        "imdb:tt02": {"type": "movie", "title": "B", "year": 2001, "ids": {"imdb": "tt02"}},
         "imdb:tt03": {"type": "movie", "title": "C", "year": 2002, "ids": {"imdb": "tt03"}},
     }
     dst_items = {
@@ -140,7 +141,8 @@ def test_orchestrator_oneway_watchlist_add_then_observed_remove(
     assert [it.get("ids", {}).get("imdb") for it in dst.add_calls[0]] == ["tt03"]
     assert dst.remove_calls == []
 
-    # Run 2: now DST has a baseline that includes B,  removal is allowed.
+    # Run 2: B disappeared from the source after being observed in the first baseline.
+    src.index.pop("imdb:tt02")
     orch.run()
     assert len(dst.remove_calls) == 1
     assert [it.get("ids", {}).get("imdb") for it in dst.remove_calls[0]] == ["tt02"]

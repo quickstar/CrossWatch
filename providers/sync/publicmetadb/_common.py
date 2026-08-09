@@ -19,7 +19,7 @@ from cw_platform.metadata_cache import (
 
 from .._log import log as cw_log
 
-STATE_DIR = Path("/config/.cw_state")
+STATE_DIR = CONFIG_BASE() / ".cw_state"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
