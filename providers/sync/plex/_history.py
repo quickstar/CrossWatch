@@ -393,6 +393,7 @@ class HistoryCatalog:
         "by_rk",
         "movie_tokens",
         "show_tokens",
+        "show_tokens_by_rk",
         "episode_index",
         "movie_title_year",
         "guid_complete",
@@ -403,6 +404,7 @@ class HistoryCatalog:
         self.by_rk: dict[str, dict[str, Any]] = {}
         self.movie_tokens: dict[str, str] = {}
         self.show_tokens: dict[str, str] = {}
+        self.show_tokens_by_rk: dict[str, set[str]] = {}
         self.episode_index: dict[tuple[str, int, int], set[str]] = {}
         self.movie_title_year: dict[tuple[str, int | None], set[str]] = {}
         self.guid_complete = False
@@ -440,12 +442,16 @@ class HistoryCatalog:
                 self.movie_title_year.setdefault(ty, set()).add(rk)
         elif e["type"] == "show":
             for tok in _id_tokens(e["ids"]):
-                self.show_tokens.setdefault(tok, rk)
+                owner = self.show_tokens.setdefault(tok, rk)
+                self.show_tokens_by_rk.setdefault(owner, set()).add(tok)
         else:
             show_toks = _id_tokens(e["show_ids"])
-            for tok in show_toks:
-                if e["show_rk"]:
-                    self.show_tokens.setdefault(tok, e["show_rk"])
+            show_rk = e["show_rk"]
+            if show_rk:
+                show_toks.update(self.show_tokens_by_rk.get(show_rk, set()))
+                for tok in show_toks:
+                    owner = self.show_tokens.setdefault(tok, show_rk)
+                    self.show_tokens_by_rk.setdefault(owner, set()).add(tok)
             s, ep = e["season"], e["episode"]
             try:
                 s_i = int(s) if s is not None else None
@@ -614,9 +620,16 @@ def filter_add_candidates(
     allow = plex_feature_library_ids(adapter, "history")
     catalog = _get_history_catalog(adapter, allow)
 
+    if any(
+        str(item.get("type") or "movie").strip().lower() == "movie"
+        and catalog.resolve(item, strict=True)[1] == CLASS_NOT_IN_PLEX_CATALOG
+        for item in rows
+    ):
+        catalog = _get_history_catalog(adapter, allow, force=True)
+
     if any(str(item.get("type") or "").strip().lower() in {"episode", "anime"} for item in rows):
-        if _populate_catalog_episode_leaves(adapter, allow, catalog):
-            _store_history_catalog(adapter, allow, catalog)
+        _populate_catalog_episode_leaves(adapter, allow, catalog)
+        _store_history_catalog(adapter, allow, catalog)
 
     definite_misses = {
         CLASS_NOT_IN_PLEX_CATALOG,

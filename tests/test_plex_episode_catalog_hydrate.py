@@ -105,3 +105,32 @@ def test_episode_index_is_identical_with_and_without_item_hydration(monkeypatch,
     assert without.show_tokens == with_hydrate.show_tokens
     assert set(without.by_rk) == set(with_hydrate.by_rk)
     assert len(calls_b) < len(calls_a)
+
+
+def test_episode_index_uses_known_show_aliases_when_hydration_fails(monkeypatch) -> None:
+    from providers.sync.plex import _common as c
+    from providers.sync.plex._history import CLASS_IN_CATALOG_UNWATCHED, HistoryCatalog
+
+    monkeypatch.setattr(c, "hydrate_external_ids", lambda *_a, **_k: {})
+    row = dict(EPISODE_ROW)
+    row.pop("grandparentGuid")
+    meta = c.normalize_discover_row(row, token="T", hydrate_item_ids=False) or {}
+    assert meta["show_ids"] == {"plex": "900"}
+
+    cat = HistoryCatalog()
+    cat.add({"rk": "900", "type": "show", "ids": {"plex": "900", "tvdb": "81797"}})
+    cat.add(
+        {
+            "rk": "5001",
+            "type": "episode",
+            "show_rk": "900",
+            "show_ids": meta["show_ids"],
+            "season": 1,
+            "episode": 1,
+        }
+    )
+
+    assert cat.resolve(
+        {"type": "episode", "show_ids": {"tvdb": "81797"}, "season": 1, "episode": 1},
+        strict=True,
+    ) == ("5001", CLASS_IN_CATALOG_UNWATCHED)

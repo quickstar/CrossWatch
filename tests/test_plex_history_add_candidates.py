@@ -84,6 +84,35 @@ def test_filter_add_candidates_rechecks_items_when_library_changes(
     assert second["skipped_count"] == 0
 
 
+def test_filter_add_candidates_refreshes_catalog_before_dropping_movie(monkeypatch) -> None:
+    cached = history.HistoryCatalog()
+    cached.guid_complete = True
+    refreshed = history.HistoryCatalog()
+    refreshed.guid_complete = True
+    refreshed.add(
+        {
+            "rk": "movie-1",
+            "type": "movie",
+            "ids": {"imdb": "tt0000001"},
+        }
+    )
+    calls: list[bool] = []
+
+    def get_catalog(_adapter, _allow, *, force=False):
+        calls.append(force)
+        return refreshed if force else cached
+
+    monkeypatch.setattr(history, "_get_history_catalog", get_catalog)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    item = {"type": "movie", "ids": {"imdb": "tt0000001"}}
+
+    result = history.filter_add_candidates(object(), [item])
+
+    assert result["items"] == [item]
+    assert result["skipped_count"] == 0
+    assert calls == [False, True]
+
+
 def test_filter_add_candidates_keeps_ambiguous_items_for_real_resolution(
     monkeypatch,
 ) -> None:
@@ -116,6 +145,27 @@ def test_filter_add_candidates_fails_open_when_episode_catalog_is_incomplete(
 
     assert result["items"] == [item]
     assert result["skipped_count"] == 0
+
+
+def test_filter_add_candidates_caches_complete_empty_episode_scan(monkeypatch) -> None:
+    catalog = _catalog()
+    catalog.episode_complete = False
+    stored: list[history.HistoryCatalog] = []
+
+    def populate(_adapter, _allow, cat):
+        cat.episode_complete = True
+        return 0
+
+    monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
+    monkeypatch.setattr(history, "_populate_catalog_episode_leaves", populate)
+    monkeypatch.setattr(history, "_store_history_catalog", lambda _a, _allow, cat: stored.append(cat))
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+
+    result = history.filter_add_candidates(object(), [_episode(2)])
+
+    assert result["items"] == []
+    assert result["skipped_count"] == 1
+    assert stored == [catalog]
 
 
 def test_filter_add_candidates_fails_open_when_guid_catalog_is_incomplete(
