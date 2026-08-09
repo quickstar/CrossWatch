@@ -436,7 +436,11 @@ def test_provider_cleanup_crosswatch_progress_persists_empty_state(tmp_path: Pat
     monkeypatch.setenv("CW_CAPTURE_MODE", "1")
     monkeypatch.setenv("CW_CAPTURE_PROVIDER", "PLEX")
 
-    cleared = snapshots.clear_provider_features("CROSSWATCH", ["progress"], cfg={"version": "test", "crosswatch": {"root_dir": str(root)}})
+    cleared = snapshots.clear_provider_features(
+        "CROSSWATCH",
+        ["progress"],
+        cfg={"version": "test", "crosswatch": {"root_dir": str(root), "connected": True}},
+    )
 
     assert cleared["ok"] is True
     assert cleared["results"]["progress"]["removed"] == 1
@@ -475,7 +479,11 @@ def test_restore_crosswatch_progress_persists_state(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("CW_CAPTURE_MODE", "1")
     monkeypatch.setenv("CW_CAPTURE_PROVIDER", "PLEX")
 
-    restored = snapshots.restore_snapshot(rel, mode="merge", cfg={"version": "test", "crosswatch": {"root_dir": str(root)}})
+    restored = snapshots.restore_snapshot(
+        rel,
+        mode="merge",
+        cfg={"version": "test", "crosswatch": {"root_dir": str(root), "connected": True}},
+    )
 
     assert restored["ok"] is True
     assert restored["added"] == 1
@@ -571,10 +579,11 @@ def test_captures_ui_compare_summary_uses_icons() -> None:
     from pathlib import Path
 
     js = (Path(__file__).resolve().parents[1] / "assets" / "js" / "snapshots.js").read_text(encoding="utf-8")
+    css = (Path(__file__).resolve().parents[1] / "assets" / "css" / "pages.css").read_text(encoding="utf-8")
     summary_body = js[js.index('<div class="ss-diff-summary">') : js.index("async function onDiffRun()")]
 
     assert "material-symbols-rounded" in summary_body
-    assert "justify-content:center" in js
+    assert ".ss-diff-summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center}" in css
     assert ">added</span>" not in summary_body
     assert ">deleted</span>" not in summary_body
     assert ">updated</span>" not in summary_body
@@ -605,10 +614,11 @@ def test_captures_ui_details_toggle_and_scrollbar() -> None:
     from pathlib import Path
 
     js = (Path(__file__).resolve().parents[1] / "assets" / "js" / "snapshots.js").read_text(encoding="utf-8")
+    css = (Path(__file__).resolve().parents[1] / "assets" / "css" / "pages.css").read_text(encoding="utf-8")
     details_body = js[js.index("async function onViewDetails()") : js.index("  async function onRestore()")]
 
-    assert ".ss-detail-pre{scrollbar-width:thin" in js
-    assert ".ss-detail-pre::-webkit-scrollbar-thumb" in js
+    assert ".ss-detail-pre{scrollbar-width:thin" in css
+    assert ".ss-detail-pre::-webkit-scrollbar-thumb" in css
     assert 'if (!out.classList.contains("hidden")) {' in details_body
     assert 'out.classList.add("hidden");' in details_body
     assert 'out.textContent = "";' in details_body
@@ -631,11 +641,12 @@ def test_captures_ui_tools_use_flat_danger_and_cleanup_label() -> None:
     from pathlib import Path
 
     js = (Path(__file__).resolve().parents[1] / "assets" / "js" / "snapshots.js").read_text(encoding="utf-8")
+    css = (Path(__file__).resolve().parents[1] / "assets" / "css" / "pages.css").read_text(encoding="utf-8")
 
     assert "Cleanup Captures" in js
     assert "Cleanup old captures" not in js
-    assert "#page-snapshots .ss-tool-btn.danger{background:#432630!important" in js
-    assert "color:#d99aa4" in js
+    assert "#page-snapshots .ss-tool-btn.danger{background:#432630 !important" in css
+    assert "color:#d99aa4" in css
 
 
 def test_captures_ui_restore_mode_handling() -> None:

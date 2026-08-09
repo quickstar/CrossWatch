@@ -12,11 +12,13 @@ from typing import Any, Callable, Mapping, TypeGuard
 
 import requests
 
+from cw_platform.config_base import CONFIG_BASE
+
 from .._log import log as cw_log
 from ._auth import is_configured as auth_configured
 from ._auth import request_with_auth as mdblist_request_with_auth
 
-STATE_DIR = Path("/config/.cw_state")
+STATE_DIR = CONFIG_BASE() / ".cw_state"
 WATERMARK_PATH = STATE_DIR / "mdblist.watermarks.json"
 START_OF_TIME_ISO = "1900-01-01T00:00:00Z"
 

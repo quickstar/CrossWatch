@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from api import metaAPI
@@ -32,7 +33,7 @@ def test_episode_still_art_is_fetched_and_cached(tmp_path, monkeypatch) -> None:
     path, mime = metaAPI.get_episode_still_file("tmdb-key", 95738, 3, 2, "w300", tmp_path)
     path2, mime2 = metaAPI.get_episode_still_file("tmdb-key", 95738, 3, 2, "w300", tmp_path)
 
-    assert Path(path).name == "tv_95738_s3_e2_still_w300.jpg"
+    assert re.fullmatch(r"tv_still_[0-9a-f]{64}\.jpg", Path(path).name)
     assert path2 == path
     assert mime == "image/jpeg"
     assert mime2 == "image/jpeg"

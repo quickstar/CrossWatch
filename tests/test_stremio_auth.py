@@ -108,7 +108,16 @@ def test_stremio_auth_key_is_redacted_and_normalized() -> None:
 
     _normalize_stremio(cfg)
 
-    assert cfg["stremio"] == {"auth_key": "secret-key", "instances": {"alt": {"auth_key": "alt-secret"}}}
+    assert cfg["stremio"] == {
+        "auth_key": "secret-key",
+        "ratings": {"liked_min": 6.0, "loved_min": 8.0},
+        "instances": {
+            "alt": {
+                "auth_key": "alt-secret",
+                "ratings": {"liked_min": 6.0, "loved_min": 8.0},
+            }
+        },
+    }
     redacted = redact_config(cfg)
     assert redacted["stremio"]["auth_key"] not in {"secret-key", ""}
     assert redacted["stremio"]["instances"]["alt"]["auth_key"] not in {"alt-secret", ""}
