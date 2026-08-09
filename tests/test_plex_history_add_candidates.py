@@ -175,6 +175,23 @@ def test_filter_add_candidates_reuses_complete_catalog_for_known_episode(monkeyp
     assert result["skipped_count"] == 0
 
 
+def test_filter_add_candidates_reuses_complete_catalog_for_missing_episode(monkeypatch) -> None:
+    catalog = _catalog()
+
+    def unexpected_scan(*_args, **_kwargs):
+        raise AssertionError("unexpected episode scan")
+
+    monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
+    monkeypatch.setattr(history, "_populate_catalog_episode_leaves", unexpected_scan)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+
+    first = history.filter_add_candidates(object(), [_episode(2)])
+    second = history.filter_add_candidates(object(), [_episode(2)])
+
+    assert first["items"] == []
+    assert second["items"] == []
+
+
 def test_filter_add_candidates_keeps_movie_resolvable_by_plex_rating_key(monkeypatch) -> None:
     catalog = history.HistoryCatalog()
     catalog.guid_complete = True
@@ -182,6 +199,20 @@ def test_filter_add_candidates_keeps_movie_resolvable_by_plex_rating_key(monkeyp
     monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
     monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
     item = {"type": "movie", "ids": {"plex": "123"}}
+
+    result = history.filter_add_candidates(object(), [item])
+
+    assert result["items"] == [item]
+    assert result["skipped_count"] == 0
+
+
+def test_filter_add_candidates_keeps_idless_movie_for_title_fallback(monkeypatch) -> None:
+    catalog = history.HistoryCatalog()
+    catalog.guid_complete = True
+    monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    monkeypatch.setattr(history, "plex_cfg_get", lambda *_a, **_k: False)
+    item = {"type": "movie", "title": "Arrival", "year": 2016, "ids": {}}
 
     result = history.filter_add_candidates(object(), [item])
 

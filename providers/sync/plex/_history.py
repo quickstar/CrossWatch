@@ -630,10 +630,11 @@ def filter_add_candidates(
         return {"items": [], "skipped_count": 0, "reason_counts": {}}
 
     allow = plex_feature_library_ids(adapter, "history")
+    strict_matching = bool(plex_cfg_get(adapter, "strict_id_matching", False))
     catalog = _get_history_catalog(adapter, allow)
 
     if any(
-        catalog.resolve(item, strict=True)[1] == CLASS_NOT_IN_PLEX_CATALOG
+        catalog.resolve(item, strict=strict_matching)[1] == CLASS_NOT_IN_PLEX_CATALOG
         for item in rows
     ):
         key = _catalog_cache_key(adapter, allow)
@@ -648,14 +649,7 @@ def filter_add_candidates(
         for item in rows
         if str(item.get("type") or "").strip().lower() in {"episode", "anime"}
     ]
-    if episode_rows and (
-        not bool(getattr(catalog, "episode_complete", False))
-        or any(
-            catalog.resolve(item, strict=True)[1]
-            in {CLASS_NOT_IN_PLEX_CATALOG, CLASS_SHOW_MATCHED_EPISODE_MISSING}
-            for item in episode_rows
-        )
-    ):
+    if episode_rows and not bool(getattr(catalog, "episode_complete", False)):
         _populate_catalog_episode_leaves(adapter, allow, catalog)
         _store_history_catalog(adapter, allow, catalog)
 
@@ -668,7 +662,16 @@ def filter_add_candidates(
     reason_counts: dict[str, int] = {}
 
     for item in rows:
-        _rating_key, classification = catalog.resolve(item, strict=True)
+        _rating_key, classification = catalog.resolve(item, strict=strict_matching)
+        kind = str(item.get("type") or "movie").strip().lower()
+        if (
+            classification == CLASS_NOT_IN_PLEX_CATALOG
+            and kind == "movie"
+            and not strict_matching
+            and not _id_tokens(ids_from(item))
+        ):
+            kept.append(item)
+            continue
         if classification == CLASS_NOT_IN_PLEX_CATALOG and not bool(getattr(catalog, "guid_complete", False)):
             kept.append(item)
             continue
