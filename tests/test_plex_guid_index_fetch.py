@@ -182,6 +182,29 @@ def test_complete_empty_guid_index_is_loaded_from_disk(monkeypatch) -> None:
     assert h._GUID_INDEX_SHOW == {}
 
 
+def test_expired_history_catalog_forces_guid_refresh(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    cached = h.HistoryCatalog()
+    refreshed = h.HistoryCatalog()
+    calls: list[bool] = []
+    monkeypatch.setattr(h, "_catalog_cache_key", lambda *_a, **_k: "catalog-key")
+    monkeypatch.setattr(
+        h,
+        "_build_history_catalog",
+        lambda _adapter, _allow, *, force=False, **_kwargs: (
+            calls.append(force) or refreshed
+        ),
+    )
+    monkeypatch.setattr(h.time, "time", lambda: h._CATALOG_MEM_TTL_SEC + 1)
+    monkeypatch.setitem(h._CATALOG_CACHE, "cat", cached)
+    monkeypatch.setitem(h._CATALOG_CACHE, "key", "catalog-key")
+    monkeypatch.setitem(h._CATALOG_CACHE, "ts", 0.0)
+
+    assert h._get_history_catalog(object(), set()) is refreshed
+    assert calls == [True]
+
+
 def test_row_guids_reads_attribute_and_children() -> None:
     from providers.sync.plex._history import _row_guids
 

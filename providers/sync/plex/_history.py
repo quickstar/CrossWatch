@@ -1335,10 +1335,11 @@ def _store_history_catalog(adapter: Any, allow: set[str], cat: HistoryCatalog) -
 def _get_history_catalog(adapter: Any, allow: set[str], *, force: bool = False) -> HistoryCatalog:
     key = _catalog_cache_key(adapter, allow)
     now = time.time()
-    if (not force) and _CATALOG_CACHE.get("cat") is not None and _CATALOG_CACHE.get("key") == key \
+    cached = _CATALOG_CACHE.get("cat") is not None and _CATALOG_CACHE.get("key") == key
+    if (not force) and cached \
             and (now - float(_CATALOG_CACHE.get("ts") or 0)) < _CATALOG_MEM_TTL_SEC:
         return _CATALOG_CACHE["cat"]  # type: ignore[return-value]
-    cat = _build_history_catalog(adapter, allow, force=force)
+    cat = _build_history_catalog(adapter, allow, force=bool(force or cached))
     _store_history_catalog(adapter, allow, cat)
     return cat
 
