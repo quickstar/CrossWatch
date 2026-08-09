@@ -104,6 +104,7 @@ def test_filter_add_candidates_refreshes_catalog_before_dropping_movie(monkeypat
 
     monkeypatch.setattr(history, "_get_history_catalog", get_catalog)
     monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    monkeypatch.setitem(history._CATALOG_CACHE, "miss_refresh_ts", 0.0)
     item = {"type": "movie", "ids": {"imdb": "tt0000001"}}
 
     result = history.filter_add_candidates(object(), [item])
@@ -143,6 +144,7 @@ def test_filter_add_candidates_refreshes_guid_catalog_for_episode(monkeypatch) -
     monkeypatch.setattr(history, "_populate_catalog_episode_leaves", populate)
     monkeypatch.setattr(history, "_store_history_catalog", lambda *_a, **_k: None)
     monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    monkeypatch.setitem(history._CATALOG_CACHE, "miss_refresh_ts", 0.0)
     item = {
         "type": "episode",
         "show_ids": {"tvdb": "81797"},
@@ -185,6 +187,44 @@ def test_filter_add_candidates_keeps_movie_resolvable_by_plex_rating_key(monkeyp
 
     assert result["items"] == [item]
     assert result["skipped_count"] == 0
+
+
+def test_filter_add_candidates_keeps_episode_resolvable_by_plex_rating_key(monkeypatch) -> None:
+    catalog = history.HistoryCatalog()
+    catalog.guid_complete = True
+    catalog.episode_complete = True
+    catalog.add({"rk": "456", "type": "episode", "season": 1, "episode": 2})
+    monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    item = {"type": "episode", "ids": {"plex": "456"}, "season": 1, "episode": 2}
+
+    result = history.filter_add_candidates(object(), [item])
+
+    assert result["items"] == [item]
+    assert result["skipped_count"] == 0
+
+
+def test_filter_add_candidates_throttles_forced_refresh_for_persistent_miss(monkeypatch) -> None:
+    catalog = history.HistoryCatalog()
+    catalog.guid_complete = True
+    calls: list[bool] = []
+
+    def get_catalog(_adapter, _allow, *, force=False):
+        calls.append(force)
+        return catalog
+
+    monkeypatch.setattr(history, "_get_history_catalog", get_catalog)
+    monkeypatch.setattr(history, "_catalog_cache_key", lambda *_a, **_k: "catalog-key")
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    monkeypatch.setattr(history.time, "time", lambda: 1000.0)
+    monkeypatch.setitem(history._CATALOG_CACHE, "key", "catalog-key")
+    monkeypatch.setitem(history._CATALOG_CACHE, "miss_refresh_ts", 0.0)
+    item = {"type": "movie", "ids": {"imdb": "tt-missing"}}
+
+    history.filter_add_candidates(object(), [item])
+    history.filter_add_candidates(object(), [item])
+
+    assert calls == [False, True, False]
 
 
 def test_filter_add_candidates_keeps_ambiguous_items_for_real_resolution(

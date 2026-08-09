@@ -258,13 +258,13 @@ def _fetch_section_guid_rows(
 def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> bool:
     global _GUID_INDEX_COMPLETE, _GUID_INDEX_KEY
     srv = getattr(getattr(adapter, "client", None), "server", None)
+    if not srv:
+        return False
     key = _guid_index_key(srv, allow)
     if (not force) and _GUID_INDEX_KEY == key and _GUID_INDEX_COMPLETE:
         return True
     _clear_guid_index()
-    if not srv:
-        return False
-    if (not force) and srv and _load_guid_index(srv, allow):
+    if (not force) and _load_guid_index(srv, allow):
         _GUID_INDEX_KEY = key
         _GUID_INDEX_COMPLETE = True
         _dbg("index_cache_hit", source="guid_index", movies=len(_GUID_INDEX_MOVIE), shows=len(_GUID_INDEX_SHOW))
@@ -490,6 +490,15 @@ class HistoryCatalog:
             kind = "episode"
 
         if kind in ("episode", "season", "show"):
+            if kind == "episode":
+                item_rk = str(ids_from(item).get("plex") or "").strip()
+                direct = self.by_rk.get(item_rk) or {}
+                if direct.get("type") == "episode":
+                    return item_rk, (
+                        CLASS_IN_CATALOG_WATCHED
+                        if direct.get("watched")
+                        else CLASS_IN_CATALOG_UNWATCHED
+                    )
             show_tokens = _item_show_tokens(item)
             s, ep = _item_se(item)
             if s is not None and ep is not None and show_tokens:
@@ -627,7 +636,12 @@ def filter_add_candidates(
         catalog.resolve(item, strict=True)[1] == CLASS_NOT_IN_PLEX_CATALOG
         for item in rows
     ):
-        catalog = _get_history_catalog(adapter, allow, force=True)
+        key = _catalog_cache_key(adapter, allow)
+        now = time.time()
+        last_miss_refresh = float(_CATALOG_CACHE.get("miss_refresh_ts") or 0.0)
+        if _CATALOG_CACHE.get("key") != key or now - last_miss_refresh >= _CATALOG_MEM_TTL_SEC:
+            catalog = _get_history_catalog(adapter, allow, force=True)
+            _CATALOG_CACHE["miss_refresh_ts"] = now
 
     episode_rows = [
         item
@@ -1304,7 +1318,12 @@ def _build_history_catalog(adapter: Any, allow: set[str], *, force: bool = False
     return cat
 
 
-_CATALOG_CACHE: dict[str, Any] = {"cat": None, "ts": 0.0, "key": None}
+_CATALOG_CACHE: dict[str, Any] = {
+    "cat": None,
+    "ts": 0.0,
+    "key": None,
+    "miss_refresh_ts": 0.0,
+}
 
 
 def _user_scope_key(adapter: Any) -> str:
@@ -1327,7 +1346,10 @@ def _catalog_cache_key(adapter: Any, allow: set[str]) -> str:
 
 
 def _store_history_catalog(adapter: Any, allow: set[str], cat: HistoryCatalog) -> None:
-    _CATALOG_CACHE.update({"cat": cat, "ts": time.time(), "key": _catalog_cache_key(adapter, allow)})
+    key = _catalog_cache_key(adapter, allow)
+    if _CATALOG_CACHE.get("key") != key:
+        _CATALOG_CACHE["miss_refresh_ts"] = 0.0
+    _CATALOG_CACHE.update({"cat": cat, "ts": time.time(), "key": key})
 
 
 def _get_history_catalog(adapter: Any, allow: set[str], *, force: bool = False) -> HistoryCatalog:

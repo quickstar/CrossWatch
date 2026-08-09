@@ -170,6 +170,20 @@ def test_incomplete_guid_index_is_retried(monkeypatch) -> None:
     assert "imdb://stale" not in h._GUID_INDEX_MOVIE
 
 
+def test_missing_server_does_not_clear_valid_guid_index(monkeypatch) -> None:
+    h, adapter, _ses = _setup(monkeypatch)
+    assert h._build_guid_index(adapter, set(), force=True) is True
+    movies = dict(h._GUID_INDEX_MOVIE)
+    shows = dict(h._GUID_INDEX_SHOW)
+
+    adapter.client.server = None
+
+    assert h._build_guid_index(adapter, set(), force=True) is False
+    assert h._GUID_INDEX_MOVIE == movies
+    assert h._GUID_INDEX_SHOW == shows
+    assert h._GUID_INDEX_COMPLETE is True
+
+
 def test_complete_empty_guid_index_is_loaded_from_disk(monkeypatch) -> None:
     from providers.sync.plex import _history as h
 
