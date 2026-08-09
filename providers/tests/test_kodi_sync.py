@@ -107,7 +107,7 @@ def test_history_index_reads_movies_and_episodes():
 
     assert "tmdb:329865" in index
     assert index["tmdb:329865"]["watched"] is True
-    assert index["tmdb:329865"]["watched_at"] == "2026-01-02T03:04:05Z"
+    assert index["tmdb:329865"]["watched_at"] == common.kodi_lastplayed_to_iso("2026-01-02 03:04:05")
     ep = index["tmdb:63639#s01e01"]
     assert ep["type"] == "episode"
     assert ep["title"] == "The Target"
@@ -285,7 +285,10 @@ def test_writes_history_ratings_and_progress_to_resolved_library_items():
     assert module.add("ratings", [source_ep])["count"] == 1
     assert module.add("progress", [source_movie])["count"] == 1
 
-    assert client.movie_writes[0] == (10, {"playcount": 1, "lastplayed": "2026-06-01 12:00:00"})
+    assert client.movie_writes[0] == (
+        10,
+        {"playcount": 1, "lastplayed": common.watched_at_to_kodi(source_movie["watched_at"])},
+    )
     assert client.episode_writes[0] == (20, {"userrating": 10})
     assert client.movie_writes[1] == (10, {"resume": {"position": 90.0, "total": 6000.0}})
 
