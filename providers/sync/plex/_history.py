@@ -292,6 +292,7 @@ def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> 
                     rk = str(row.get("ratingKey") or "").strip()
                     if not rk:
                         continue
+                    dst.setdefault(f"plex:{rk.lower()}", rk)
                     for g in _row_guids(row):
                         gg = str(g or "").strip().lower()
                         if gg and gg not in dst:
@@ -1281,13 +1282,11 @@ def _build_history_catalog(adapter: Any, allow: set[str], *, force: bool = False
         _clear_guid_index()
     cat.guid_complete = _build_guid_index(adapter, allow, force=force)
     for guid, rk in list(_GUID_INDEX_MOVIE.items()):
-        ids = ids_from_guid(str(guid))
-        if ids:
-            cat.add({"rk": rk, "type": "movie", "ids": ids, "watched": False})
+        ids = {"plex": rk} if str(guid).startswith("plex:") else ids_from_guid(str(guid))
+        cat.add({"rk": rk, "type": "movie", "ids": ids, "watched": False})
     for guid, rk in list(_GUID_INDEX_SHOW.items()):
-        ids = ids_from_guid(str(guid))
-        if ids:
-            cat.add({"rk": rk, "type": "show", "ids": ids, "watched": False})
+        ids = {"plex": rk} if str(guid).startswith("plex:") else ids_from_guid(str(guid))
+        cat.add({"rk": rk, "type": "show", "ids": ids, "watched": False})
     watched_movies = 0
     watched_eps = 0
     if live:

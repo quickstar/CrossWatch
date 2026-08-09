@@ -117,6 +117,35 @@ def test_destination_filter_rejects_injected_candidates() -> None:
     assert debug[0][0] == ("add_candidates.filter_invalid_subset",)
 
 
+def test_presence_filter_accepts_normalized_history_timestamp() -> None:
+    item = {
+        "type": "movie",
+        "ids": {"imdb": "tt0000001"},
+        "watched_at": "2026-08-08T10:00:00Z",
+    }
+
+    class _Ops:
+        def filter_add_candidates(self, _cfg, *, feature, items):
+            kept = dict(items[0])
+            kept.pop("watched_at")
+            return {"items": [kept], "skipped_count": 0}
+
+    kept, skipped, skipped_items = filter_destination_add_candidates(
+        _Ops(),
+        cfg={},
+        feature="history",
+        items=[item],
+        emit=lambda *_a, **_k: None,
+        dbg=lambda *_a, **_k: None,
+        dst_name="PLEX",
+        history_event_mode=False,
+    )
+
+    assert kept == [{"type": "movie", "ids": {"imdb": "tt0000001"}}]
+    assert skipped == 0
+    assert skipped_items == []
+
+
 def test_destination_filter_fails_open() -> None:
     class _Ops:
         def filter_add_candidates(self, _cfg, *, feature, items):
@@ -213,6 +242,7 @@ def test_orchestrator_applies_only_destination_candidates(
     )
     dst = _HistoryOps("DST", {}, keep_first=True)
     cleared: list[tuple[str, str, list[str]]] = []
+    blocklist_inputs: list[list[dict[str, Any]]] = []
     monkeypatch.setattr(
         "cw_platform.orchestrator.facade.load_sync_providers",
         lambda: {"SRC": src, "DST": dst},
@@ -226,6 +256,16 @@ def test_orchestrator_applies_only_destination_candidates(
         lambda dst_name, feature, keys: (
             cleared.append((dst_name, feature, list(keys)))
             or {"ok": True, "count": len(list(keys))}
+        ),
+    )
+    monkeypatch.setattr(
+        "cw_platform.orchestrator._pairs_oneway.clear_blackbox",
+        lambda *_a, **_k: {"ok": True, "count": 1},
+    )
+    monkeypatch.setattr(
+        "cw_platform.orchestrator._pairs_oneway.apply_blocklist",
+        lambda _store, items, **_kwargs: (
+            blocklist_inputs.append([dict(item) for item in items]) or list(items)
         ),
     )
 
@@ -249,6 +289,9 @@ def test_orchestrator_applies_only_destination_candidates(
 
     assert result["added"] == (0 if dry_run else 1)
     assert result["skipped"] == 1
+    assert [[item["ids"]["imdb"] for item in batch] for batch in blocklist_inputs] == [
+        ["tt0000001"]
+    ]
     assert len(dst.add_calls) == 1
     assert [item["ids"]["imdb"] for item in dst.add_calls[0]] == ["tt0000001"]
     filtered_clear = ("DST", "history", ["imdb:tt0000002"])

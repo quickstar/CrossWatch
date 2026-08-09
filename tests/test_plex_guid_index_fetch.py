@@ -89,13 +89,19 @@ def test_guid_index_is_built_from_paged_rows(monkeypatch) -> None:
     h._build_guid_index(adapter, set(), force=True)
 
     assert h._GUID_INDEX_MOVIE == {
+        "plex:11": "11",
         "plex://movie/aaa": "11",
         "tmdb://603": "11",
         "imdb://tt0133093": "11",
+        "plex:12": "12",
         "plex://movie/bbb": "12",
         "tmdb://604": "12",
     }
-    assert h._GUID_INDEX_SHOW == {"plex://show/ccc": "21", "tvdb://81797": "21"}
+    assert h._GUID_INDEX_SHOW == {
+        "plex:21": "21",
+        "plex://show/ccc": "21",
+        "tvdb://81797": "21",
+    }
 
 
 def test_requests_ask_for_guids_and_correct_types(monkeypatch) -> None:
@@ -124,6 +130,17 @@ def test_allow_filter_skips_other_sections(monkeypatch) -> None:
 
     assert len(ses.calls) == 1
     assert h._GUID_INDEX_SHOW == {}
+
+
+def test_local_guid_row_is_indexed_by_rating_key(monkeypatch) -> None:
+    h, adapter, _ses = _setup(monkeypatch)
+    adapter._sections = [_Section("1", "movie")]
+    monkeypatch.setitem(globals(), "MOVIE_ROWS", [{"ratingKey": "99", "guid": "local://movie/99"}])
+
+    catalog = h._build_history_catalog(adapter, set(), force=True, live=False)
+
+    assert h._GUID_INDEX_MOVIE["plex:99"] == "99"
+    assert catalog.resolve({"type": "movie", "ids": {"plex": "99"}}, strict=True)[0] == "99"
 
 
 def test_complete_empty_guid_index_is_reused_in_memory(monkeypatch) -> None:

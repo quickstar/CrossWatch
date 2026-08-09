@@ -251,7 +251,7 @@ from ._history_rewatches import (
 )
 
 # Blackbox imports
-from ._blackbox import load_blackbox_keys, record_attempts, record_success
+from ._blackbox import clear_blackbox, load_blackbox_keys, record_attempts, record_success
 
 _PROVIDER_KEY_MAP = {
     "PLEX": "plex",
@@ -270,6 +270,7 @@ def filter_destination_add_candidates(
     emit,
     dbg,
     dst_name: str,
+    history_event_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]]]:
     """Let the destination drop items it can prove are outside its write scope."""
     rows = [dict(item) for item in (items or []) if isinstance(item, Mapping)]
@@ -300,7 +301,7 @@ def filter_destination_add_candidates(
 
     def _candidate_identity(item: Mapping[str, Any]) -> str:
         if str(feature or "").lower() == "history":
-            return history_sync_key(item, event_mode=True)
+            return history_sync_key(item, event_mode=history_event_mode)
         return _ck(item) or ""
 
     available: dict[str, int] = {}
@@ -1607,18 +1608,6 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
     )
 
     pair_key = "-".join(sorted([src, dst]))
-    if feature != "watchlist":
-        adds = apply_blocklist(
-            ctx.state_store,
-            adds,
-            dst=dst,
-            feature=feature,
-            pair_key=pair_key,
-            cross_feature_unresolved=_cross_feature_unresolved(feature),
-            ignore_pair_tomb=(str(feature or "").lower() == "history"),
-            emit=emit,
-        )
-
     manual_blocked = 0
     if manual_blocks:
         b_adds, b_upd, b_rem = len(adds), len(updates), len(removes)
@@ -1647,6 +1636,7 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
         emit=emit,
         dbg=dbg,
         dst_name=dst,
+        history_event_mode=history_event_mode,
     )
     if add_candidates_skipped_items and not dry_run_flag:
         filtered_keys = [
@@ -1656,6 +1646,7 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
         ]
         if filtered_keys:
             cleared = clear_unresolved(dst, feature, filtered_keys)
+            clear_blackbox(dst, feature, filtered_keys, pair=pair_key)
             if int((cleared or {}).get("count", 0) or 0):
                 emit(
                     "add_candidates:unresolved_cleared",
@@ -1663,6 +1654,18 @@ def run_one_way_feature(  # pyright: ignore[reportGeneralTypeIssues]
                     feature=feature,
                     count=int(cleared.get("count", 0) or 0),
                 )
+
+    if feature != "watchlist":
+        adds = apply_blocklist(
+            ctx.state_store,
+            adds,
+            dst=dst,
+            feature=feature,
+            pair_key=pair_key,
+            cross_feature_unresolved=_cross_feature_unresolved(feature),
+            ignore_pair_tomb=(str(feature or "").lower() == "history"),
+            emit=emit,
+        )
 
     try:
         unresolved_known = set(load_unresolved_keys(dst, feature, cross_features=_cross_feature_unresolved(feature)) or [])
