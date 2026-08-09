@@ -157,6 +157,36 @@ def test_filter_add_candidates_refreshes_guid_catalog_for_episode(monkeypatch) -
     assert calls == [False, True]
 
 
+def test_filter_add_candidates_reuses_complete_catalog_for_known_episode(monkeypatch) -> None:
+    catalog = _catalog()
+
+    def unexpected_scan(*_args, **_kwargs):
+        raise AssertionError("unexpected episode scan")
+
+    monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
+    monkeypatch.setattr(history, "_populate_catalog_episode_leaves", unexpected_scan)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+
+    result = history.filter_add_candidates(object(), [_episode(1)])
+
+    assert result["items"] == [_episode(1)]
+    assert result["skipped_count"] == 0
+
+
+def test_filter_add_candidates_keeps_movie_resolvable_by_plex_rating_key(monkeypatch) -> None:
+    catalog = history.HistoryCatalog()
+    catalog.guid_complete = True
+    catalog.add({"rk": "123", "type": "movie", "ids": {"imdb": "tt0000001"}})
+    monkeypatch.setattr(history, "_get_history_catalog", lambda *_a, **_k: catalog)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    item = {"type": "movie", "ids": {"plex": "123"}}
+
+    result = history.filter_add_candidates(object(), [item])
+
+    assert result["items"] == [item]
+    assert result["skipped_count"] == 0
+
+
 def test_filter_add_candidates_keeps_ambiguous_items_for_real_resolution(
     monkeypatch,
 ) -> None:

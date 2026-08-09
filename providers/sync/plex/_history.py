@@ -435,13 +435,17 @@ class HistoryCatalog:
         }
         self.by_rk[rk] = e
         if e["type"] == "movie":
-            for tok in _id_tokens(e["ids"]):
+            movie_toks = _id_tokens(e["ids"])
+            movie_toks.add(f"plex:{rk.lower()}")
+            for tok in movie_toks:
                 self.movie_tokens.setdefault(tok, rk)
             ty = self._title_year(e["title"], e["year"])
             if ty:
                 self.movie_title_year.setdefault(ty, set()).add(rk)
         elif e["type"] == "show":
-            for tok in _id_tokens(e["ids"]):
+            show_toks = _id_tokens(e["ids"])
+            show_toks.add(f"plex:{rk.lower()}")
+            for tok in show_toks:
                 owner = self.show_tokens.setdefault(tok, rk)
                 self.show_tokens_by_rk.setdefault(owner, set()).add(tok)
         else:
@@ -626,7 +630,19 @@ def filter_add_candidates(
     ):
         catalog = _get_history_catalog(adapter, allow, force=True)
 
-    if any(str(item.get("type") or "").strip().lower() in {"episode", "anime"} for item in rows):
+    episode_rows = [
+        item
+        for item in rows
+        if str(item.get("type") or "").strip().lower() in {"episode", "anime"}
+    ]
+    if episode_rows and (
+        not bool(getattr(catalog, "episode_complete", False))
+        or any(
+            catalog.resolve(item, strict=True)[1]
+            in {CLASS_NOT_IN_PLEX_CATALOG, CLASS_SHOW_MATCHED_EPISODE_MISSING}
+            for item in episode_rows
+        )
+    ):
         _populate_catalog_episode_leaves(adapter, allow, catalog)
         _store_history_catalog(adapter, allow, catalog)
 
