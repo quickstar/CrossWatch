@@ -126,6 +126,45 @@ def test_allow_filter_skips_other_sections(monkeypatch) -> None:
     assert h._GUID_INDEX_SHOW == {}
 
 
+def test_complete_empty_guid_index_is_reused_in_memory(monkeypatch) -> None:
+    h, adapter, ses = _setup(monkeypatch)
+    adapter._sections = []
+
+    assert h._build_guid_index(adapter, set(), force=True) is True
+
+    def unexpected_rebuild(**_kwargs):
+        raise AssertionError("unexpected rebuild")
+
+    adapter.libraries = unexpected_rebuild
+
+    assert h._build_guid_index(adapter, set()) is True
+    assert ses.calls == []
+
+
+def test_complete_empty_guid_index_is_loaded_from_disk(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    srv = _Server()
+    srv.machineIdentifier = "server-1"
+    monkeypatch.setattr(
+        h,
+        "read_json",
+        lambda _path: {
+            "complete": True,
+            "machine_id": "server-1",
+            "allow": [],
+            "created_epoch": 0,
+            "movies": {},
+            "shows": {},
+        },
+    )
+    h._clear_guid_index()
+
+    assert h._load_guid_index(srv, set()) is True
+    assert h._GUID_INDEX_MOVIE == {}
+    assert h._GUID_INDEX_SHOW == {}
+
+
 def test_row_guids_reads_attribute_and_children() -> None:
     from providers.sync.plex._history import _row_guids
 

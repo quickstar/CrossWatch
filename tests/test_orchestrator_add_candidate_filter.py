@@ -41,7 +41,7 @@ def test_destination_filter_reports_expected_skips() -> None:
 
     assert kept == _items()[:1]
     assert skipped == 1
-    assert skipped_items == []
+    assert skipped_items == _items()[1:]
     assert events == [
         (
             "add_candidates:filtered",
@@ -76,7 +76,7 @@ def test_destination_filter_reconciles_inconsistent_skip_count() -> None:
 
     assert kept == _items()[:1]
     assert skipped == 1
-    assert skipped_items == []
+    assert skipped_items == _items()[1:]
     assert events == [
         (
             "add_candidates:filtered",

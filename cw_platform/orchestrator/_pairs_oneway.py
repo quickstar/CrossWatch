@@ -324,25 +324,29 @@ def filter_destination_add_candidates(
         skipped_explicit = int(result["skipped_count"]) if "skipped_count" in result else None
     except (TypeError, ValueError):
         skipped_explicit = None
-    skipped = (
-        skipped_explicit
-        if skipped_explicit == skipped_fallback
-        else skipped_fallback
-    )
+    if skipped_explicit is not None and skipped_explicit != skipped_fallback:
+        dbg(
+            "add_candidates.filter_count_mismatch",
+            dst=dst_name,
+            feature=feature,
+            reported=skipped_explicit,
+            actual=skipped_fallback,
+        )
+    skipped = skipped_fallback
     if not skipped:
         return kept, 0, []
 
+    kept_remaining: dict[str, int] = {}
+    for item in kept:
+        key = _candidate_identity(item)
+        kept_remaining[key] = kept_remaining.get(key, 0) + 1
     skipped_items: list[dict[str, Any]] = []
-    raw_skipped = result.get("skipped")
-    if isinstance(raw_skipped, (list, tuple)):
-        for entry in raw_skipped:
-            if not isinstance(entry, Mapping):
-                continue
-            item = entry.get("item")
-            if isinstance(item, Mapping):
-                skipped_items.append(dict(item))
-            else:
-                skipped_items.append(dict(entry))
+    for item in rows:
+        key = _candidate_identity(item)
+        if kept_remaining.get(key, 0) > 0:
+            kept_remaining[key] -= 1
+        else:
+            skipped_items.append(dict(item))
 
     raw_reasons = result.get("reason_counts")
     reason_counts: dict[str, int] = {}

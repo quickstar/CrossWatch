@@ -130,7 +130,7 @@ def _load_guid_index(srv: Any, allow: set[str]) -> bool:
             return False
         _GUID_INDEX_MOVIE.update({str(k): str(v) for k, v in movies.items() if k and v})
         _GUID_INDEX_SHOW.update({str(k): str(v) for k, v in shows.items() if k and v})
-        return bool(_GUID_INDEX_MOVIE or _GUID_INDEX_SHOW)
+        return True
     except Exception:
         return False
 
@@ -259,7 +259,9 @@ def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> 
     global _GUID_INDEX_COMPLETE, _GUID_INDEX_KEY
     srv = getattr(getattr(adapter, "client", None), "server", None)
     key = _guid_index_key(srv, allow)
-    if (not force) and _GUID_INDEX_KEY == key and (_GUID_INDEX_MOVIE or _GUID_INDEX_SHOW):
+    if (not force) and _GUID_INDEX_KEY == key and (
+        _GUID_INDEX_COMPLETE or _GUID_INDEX_MOVIE or _GUID_INDEX_SHOW
+    ):
         return _GUID_INDEX_COMPLETE
     _clear_guid_index()
     if not srv:
