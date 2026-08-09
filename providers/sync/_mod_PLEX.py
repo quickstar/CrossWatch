@@ -1526,9 +1526,9 @@ class _PlexOPS:
         cfg: Mapping[str, Any],
         *,
         feature: str,
-        items: Iterable[Mapping[str, Any]],
+        items: Iterable[Mapping[str, Any]] | None,
     ) -> Mapping[str, Any]:
-        rows = list(items)
+        rows = list(items or [])
         if str(feature or "").lower() != "history" or feat_history is None:
             return {"items": rows, "skipped_count": 0, "reason_counts": {}}
         return feat_history.filter_add_candidates(self._adapter(cfg), rows)

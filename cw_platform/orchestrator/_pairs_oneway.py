@@ -297,7 +297,16 @@ def filter_destination_add_candidates(
         return rows, 0, []
 
     kept = [dict(item) for item in result.get("items") or [] if isinstance(item, Mapping)]
-    skipped = max(0, len(rows) - len(kept))
+    skipped_fallback = max(0, len(rows) - len(kept))
+    try:
+        skipped_explicit = int(result["skipped_count"]) if "skipped_count" in result else None
+    except (TypeError, ValueError):
+        skipped_explicit = None
+    skipped = (
+        skipped_explicit
+        if skipped_explicit is not None and 0 <= skipped_explicit <= len(rows)
+        else skipped_fallback
+    )
     if not skipped:
         return kept, 0, []
 

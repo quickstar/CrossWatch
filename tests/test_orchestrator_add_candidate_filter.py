@@ -57,6 +57,29 @@ def test_destination_filter_reports_expected_skips() -> None:
     ]
 
 
+def test_destination_filter_trusts_explicit_skip_count() -> None:
+    class _Ops:
+        def filter_add_candidates(self, _cfg, *, feature, items):
+            rows = list(items)
+            return {"items": rows[:1], "skipped_count": 0}
+
+    events: list[tuple[str, dict]] = []
+    kept, skipped, skipped_items = filter_destination_add_candidates(
+        _Ops(),
+        cfg={},
+        feature="history",
+        items=_items(),
+        emit=lambda event, **data: events.append((event, data)),
+        dbg=lambda *_a, **_k: None,
+        dst_name="PLEX",
+    )
+
+    assert kept == _items()[:1]
+    assert skipped == 0
+    assert skipped_items == []
+    assert events == []
+
+
 def test_destination_filter_fails_open() -> None:
     class _Ops:
         def filter_add_candidates(self, _cfg, *, feature, items):

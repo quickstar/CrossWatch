@@ -111,6 +111,8 @@ def _guid_index_path() -> Path:
 def _load_guid_index(srv: Any, allow: set[str]) -> bool:
     try:
         data = read_json(_guid_index_path()) or {}
+        if data.get("complete") is not True:
+            return False
         mid = str(getattr(srv, "machineIdentifier", "") or "")
         if not mid or data.get("machine_id") != mid:
             return False
@@ -141,6 +143,7 @@ def _save_guid_index(srv: Any, allow: set[str]) -> None:
             "machine_id": mid,
             "allow": sorted(str(x) for x in (allow or set())),
             "created_epoch": int(time.time()),
+            "complete": True,
             "movies": _GUID_INDEX_MOVIE,
             "shows": _GUID_INDEX_SHOW,
         }
@@ -154,6 +157,7 @@ _dbg, _info, _warn, _error, _log = make_logger("history")
 _GUID_INDEX_MOVIE: dict[str, str] = {}
 _GUID_INDEX_SHOW: dict[str, str] = {}
 _GUID_INDEX_KEY: str | None = None
+_GUID_INDEX_COMPLETE = False
 _ALLOWED_HISTORY_TYPES = frozenset({"movie", "episode"})
 
 
@@ -168,10 +172,11 @@ def _guid_index_key(srv: Any, allow: set[str]) -> str:
 
 
 def _clear_guid_index() -> None:
-    global _GUID_INDEX_KEY
+    global _GUID_INDEX_COMPLETE, _GUID_INDEX_KEY
     _GUID_INDEX_MOVIE.clear()
     _GUID_INDEX_SHOW.clear()
     _GUID_INDEX_KEY = None
+    _GUID_INDEX_COMPLETE = False
 
 
 def _row_guids(row: Mapping[str, Any]) -> list[str]:
@@ -186,12 +191,16 @@ def _row_guids(row: Mapping[str, Any]) -> list[str]:
     return vals
 
 
-def _fetch_section_guid_rows(srv: Any, section_id: str, plex_type: int) -> tuple[list[Mapping[str, Any]], int]:
+def _fetch_section_guid_rows(
+    srv: Any,
+    section_id: str,
+    plex_type: int,
+) -> tuple[list[Mapping[str, Any]], int, bool]:
     base = _as_base_url(srv)
     ses = getattr(srv, "_session", None)
     token = getattr(srv, "token", None) or getattr(srv, "_token", None) or ""
     if not (base and ses and token and section_id):
-        return [], 0
+        return [], 0, False
 
     headers = dict(getattr(ses, "headers", {}) or {})
     headers.update(plex_headers(token))
@@ -202,6 +211,7 @@ def _fetch_section_guid_rows(srv: Any, section_id: str, plex_type: int) -> tuple
     seen_pages: set[tuple[str, ...]] = set()
     start = 0
     made = 0
+    complete = False
 
     while True:
         params = {
@@ -227,6 +237,7 @@ def _fetch_section_guid_rows(srv: Any, section_id: str, plex_type: int) -> tuple
         except Exception:
             break
         if not rows:
+            complete = total_i is None or start >= total_i
             break
         signature = tuple(str(row.get("ratingKey") or row.get("key") or "") for row in rows)
         if signature in seen_pages:
@@ -235,35 +246,46 @@ def _fetch_section_guid_rows(srv: Any, section_id: str, plex_type: int) -> tuple
         out.extend(rows)
         start += len(rows)
         if total_i is not None and start >= total_i:
+            complete = True
             break
-        if len(rows) < page_size:
+        if total_i is None and len(rows) < page_size:
+            complete = True
             break
 
-    return out, made
+    return out, made, complete
 
 
-def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> None:
-    global _GUID_INDEX_KEY
+def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> bool:
+    global _GUID_INDEX_COMPLETE, _GUID_INDEX_KEY
     srv = getattr(getattr(adapter, "client", None), "server", None)
     key = _guid_index_key(srv, allow)
     if (not force) and _GUID_INDEX_KEY == key and (_GUID_INDEX_MOVIE or _GUID_INDEX_SHOW):
-        return
+        return _GUID_INDEX_COMPLETE
     _clear_guid_index()
+    if not srv:
+        return False
     if (not force) and srv and _load_guid_index(srv, allow):
         _GUID_INDEX_KEY = key
+        _GUID_INDEX_COMPLETE = True
         _dbg("index_cache_hit", source="guid_index", movies=len(_GUID_INDEX_MOVIE), shows=len(_GUID_INDEX_SHOW))
-        return
+        return True
     try:
+        try:
+            sections = list(adapter.libraries(types=("movie", "show")) or [])
+        except Exception:
+            return False
         requests_made = 0
-        for sec in adapter.libraries(types=("movie", "show")) or []:
+        complete = True
+        for sec in sections:
             sid = str(getattr(sec, "key", "") or "").strip()
             if allow and sid and sid not in allow:
                 continue
             libtype = "movie" if getattr(sec, "type", "") == "movie" else "show"
             dst = _GUID_INDEX_MOVIE if libtype == "movie" else _GUID_INDEX_SHOW
             try:
-                rows, n = _fetch_section_guid_rows(srv, sid, 1 if libtype == "movie" else 2)
+                rows, n, section_complete = _fetch_section_guid_rows(srv, sid, 1 if libtype == "movie" else 2)
                 requests_made += n
+                complete = complete and section_complete
                 for row in rows:
                     rk = str(row.get("ratingKey") or "").strip()
                     if not rk:
@@ -273,19 +295,23 @@ def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> 
                         if gg and gg not in dst:
                             dst[gg] = rk
             except Exception:
+                complete = False
                 continue
-        if srv:
+        if complete:
             _save_guid_index(srv, allow)
         _GUID_INDEX_KEY = key
+        _GUID_INDEX_COMPLETE = complete
         _dbg(
             "index_fetch_counts",
             source="guid_index",
             movies=len(_GUID_INDEX_MOVIE),
             shows=len(_GUID_INDEX_SHOW),
             requests=requests_made,
+            complete=complete,
         )
+        return complete
     except Exception:
-        pass
+        return False
 
 def _pms_find_in_guid_index(libtype: str, candidates: list[str]) -> str | None:
     src = _GUID_INDEX_SHOW if libtype == "show" else _GUID_INDEX_MOVIE
@@ -361,7 +387,15 @@ def _item_se(item: Mapping[str, Any]) -> tuple[int | None, int | None]:
 
 
 class HistoryCatalog:
-    __slots__ = ("by_rk", "movie_tokens", "show_tokens", "episode_index", "movie_title_year")
+    __slots__ = (
+        "by_rk",
+        "movie_tokens",
+        "show_tokens",
+        "episode_index",
+        "movie_title_year",
+        "guid_complete",
+        "episode_complete",
+    )
 
     def __init__(self) -> None:
         self.by_rk: dict[str, dict[str, Any]] = {}
@@ -369,6 +403,8 @@ class HistoryCatalog:
         self.show_tokens: dict[str, str] = {}
         self.episode_index: dict[tuple[str, int, int], set[str]] = {}
         self.movie_title_year: dict[tuple[str, int | None], set[str]] = {}
+        self.guid_complete = False
+        self.episode_complete = False
 
     def add(self, entry: Mapping[str, Any]) -> None:
         rk = str(entry.get("rk") or entry.get("rating_key") or "").strip()
@@ -565,8 +601,9 @@ def filter_add_candidates(
     """Keep Plex history writes that can resolve to the current target library.
 
     Missing library items are expected for cross-provider history and are therefore
-    skipped without becoming unresolved. The filter is stateless, so a later run
-    will reconsider an item after it has been added to Plex.
+    skipped without becoming unresolved. Filtering decisions are not persisted, so
+    a later run will reconsider an item after it has been added to Plex; refreshed
+    catalog data may still be cached for subsequent lookups.
     """
     rows = [dict(item) for item in (items or []) if isinstance(item, Mapping)]
     if not rows:
@@ -589,6 +626,14 @@ def filter_add_candidates(
 
     for item in rows:
         _rating_key, classification = catalog.resolve(item, strict=True)
+        if classification == CLASS_NOT_IN_PLEX_CATALOG and not bool(getattr(catalog, "guid_complete", False)):
+            kept.append(item)
+            continue
+        if classification == CLASS_SHOW_MATCHED_EPISODE_MISSING and not bool(
+            getattr(catalog, "episode_complete", False)
+        ):
+            kept.append(item)
+            continue
         if classification not in definite_misses:
             kept.append(item)
             continue
@@ -1082,6 +1127,7 @@ def _iter_live_watched(adapter: Any, allow: set[str], *, full: bool = True) -> l
 
 
 def _populate_catalog_episode_leaves(adapter: Any, allow: set[str], cat: HistoryCatalog) -> int:
+    cat.episode_complete = False
     srv = getattr(getattr(adapter, "client", None), "server", None)
     if not srv:
         return 0
@@ -1104,10 +1150,11 @@ def _populate_catalog_episode_leaves(adapter: Any, allow: set[str], cat: History
     try:
         sections = list(adapter.libraries(types=("show",)) or [])
     except Exception:
-        sections = []
+        return 0
 
     added = 0
     scanned = 0
+    complete = True
     t0 = time.time()
     for sec_obj in sections:
         section_id = _marked_section_id(sec_obj) or ""
@@ -1115,6 +1162,7 @@ def _populate_catalog_episode_leaves(adapter: Any, allow: set[str], cat: History
             continue
         start = 0
         seen_pages: set[tuple[str, ...]] = set()
+        section_complete = False
         while True:
             params = {
                 "type": 4,
@@ -1138,9 +1186,9 @@ def _populate_catalog_episode_leaves(adapter: Any, allow: set[str], cat: History
                 total = mc.get("totalSize")
                 total_i = int(total) if total is not None else None
             except Exception:
-                rows = []
-                total_i = None
+                break
             if not rows:
+                section_complete = total_i is None or start >= total_i
                 break
             signature = tuple(str(row.get("ratingKey") or row.get("key") or "") for row in rows)
             if signature in seen_pages:
@@ -1177,13 +1225,18 @@ def _populate_catalog_episode_leaves(adapter: Any, allow: set[str], cat: History
                 added += 1
             start += len(rows)
             if total_i is not None and start >= total_i:
+                section_complete = True
                 break
-            if len(rows) < page_size:
+            if total_i is None and len(rows) < page_size:
+                section_complete = True
                 break
+        complete = complete and section_complete
 
+    cat.episode_complete = complete
     _emit({
         "event": "plex.catalog", "action": "episode_leaves", "feature": "history", "level": "debug",
-        "scanned": scanned, "added": added, "duration_ms": int((time.time() - t0) * 1000),
+        "scanned": scanned, "added": added, "complete": complete,
+        "duration_ms": int((time.time() - t0) * 1000),
     })
     return added
 
@@ -1196,7 +1249,7 @@ def _build_history_catalog(adapter: Any, allow: set[str], *, force: bool = False
     cat = HistoryCatalog()
     if force:
         _clear_guid_index()
-    _build_guid_index(adapter, allow, force=force)
+    cat.guid_complete = _build_guid_index(adapter, allow, force=force)
     for guid, rk in list(_GUID_INDEX_MOVIE.items()):
         ids = ids_from_guid(str(guid))
         if ids:
