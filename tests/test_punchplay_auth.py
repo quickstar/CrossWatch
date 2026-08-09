@@ -328,6 +328,7 @@ def test_server_429_blocks_further_local_attempts(punchplay, monkeypatch: pytest
 def test_forced_refresh_is_throttled_so_401s_cannot_storm(monkeypatch: pytest.MonkeyPatch) -> None:
     import providers.auth._auth_PUNCHPLAY as pp
 
+    monkeypatch.setattr(pp.time, "monotonic", lambda: 1.0)
     assert pp._allow_forced_refresh("default") is True
     assert pp._allow_forced_refresh("default") is False
     assert pp._allow_forced_refresh("other") is True
