@@ -90,6 +90,46 @@ def load_blackbox_keys(dst: str, feature: str, pair: str | None = None) -> set[s
         keys |= set(prs.keys())
     return keys
 
+
+def clear_blackbox(
+    dst: str,
+    feature: str,
+    keys: Iterable[str],
+    *,
+    pair: str | None = None,
+) -> dict[str, Any]:
+    _ordered, unique_keys = _normalize_keys(keys)
+    targets = set(unique_keys)
+    if not targets:
+        return {"ok": True, "count": 0}
+
+    removed: set[str] = set()
+    paths = {_bb_path(dst, feature)}
+    if pair:
+        paths.add(_bb_path(dst, feature, pair))
+    for path in paths:
+        data = _read_json(path)
+        changed = False
+        for key in targets:
+            if key in data:
+                data.pop(key, None)
+                removed.add(key)
+                changed = True
+        if changed:
+            _write_json(path, data)
+
+    flap_path = _flap_path(dst, feature)
+    flap_data = _read_json(flap_path)
+    flap_changed = False
+    for key in targets:
+        if key in flap_data:
+            flap_data.pop(key, None)
+            flap_changed = True
+    if flap_changed:
+        _write_json(flap_path, flap_data)
+
+    return {"ok": True, "count": len(removed)}
+
 def load_flap_counters(dst: str, feature: str) -> dict[str, dict[str, Any]]:
     return _read_json(_flap_path(dst, feature))
 

@@ -89,13 +89,19 @@ def test_guid_index_is_built_from_paged_rows(monkeypatch) -> None:
     h._build_guid_index(adapter, set(), force=True)
 
     assert h._GUID_INDEX_MOVIE == {
+        "plex:11": "11",
         "plex://movie/aaa": "11",
         "tmdb://603": "11",
         "imdb://tt0133093": "11",
+        "plex:12": "12",
         "plex://movie/bbb": "12",
         "tmdb://604": "12",
     }
-    assert h._GUID_INDEX_SHOW == {"plex://show/ccc": "21", "tvdb://81797": "21"}
+    assert h._GUID_INDEX_SHOW == {
+        "plex:21": "21",
+        "plex://show/ccc": "21",
+        "tvdb://81797": "21",
+    }
 
 
 def test_requests_ask_for_guids_and_correct_types(monkeypatch) -> None:
@@ -124,6 +130,236 @@ def test_allow_filter_skips_other_sections(monkeypatch) -> None:
 
     assert len(ses.calls) == 1
     assert h._GUID_INDEX_SHOW == {}
+
+
+def test_local_guid_row_is_indexed_by_rating_key(monkeypatch) -> None:
+    h, adapter, _ses = _setup(monkeypatch)
+    adapter._sections = [_Section("1", "movie")]
+    monkeypatch.setitem(globals(), "MOVIE_ROWS", [{"ratingKey": "99", "guid": "local://movie/99"}])
+
+    catalog = h._build_history_catalog(adapter, set(), force=True, live=False)
+
+    assert h._GUID_INDEX_MOVIE["plex:99"] == "99"
+    assert catalog.resolve({"type": "movie", "ids": {"plex": "99"}}, strict=True)[0] == "99"
+
+
+def test_complete_empty_guid_index_is_reused_in_memory(monkeypatch) -> None:
+    h, adapter, ses = _setup(monkeypatch)
+    adapter._sections = []
+
+    assert h._build_guid_index(adapter, set(), force=True) is True
+
+    def unexpected_rebuild(**_kwargs):
+        raise AssertionError("unexpected rebuild")
+
+    adapter.libraries = unexpected_rebuild
+
+    assert h._build_guid_index(adapter, set()) is True
+    assert ses.calls == []
+
+
+def test_incomplete_guid_index_is_retried(monkeypatch) -> None:
+    h, adapter, ses = _setup(monkeypatch)
+    srv = adapter.client.server
+    h._GUID_INDEX_KEY = h._guid_index_key(srv, set(), "default")
+    h._GUID_INDEX_MOVIE["imdb://stale"] = "stale"
+    h._GUID_INDEX_COMPLETE = False
+
+    assert h._build_guid_index(adapter, set()) is True
+    assert len(ses.calls) == 2
+    assert "imdb://stale" not in h._GUID_INDEX_MOVIE
+
+
+def test_missing_server_does_not_clear_valid_guid_index(monkeypatch) -> None:
+    h, adapter, _ses = _setup(monkeypatch)
+    assert h._build_guid_index(adapter, set(), force=True) is True
+    movies = dict(h._GUID_INDEX_MOVIE)
+    shows = dict(h._GUID_INDEX_SHOW)
+
+    adapter.client.server = None
+
+    assert h._build_guid_index(adapter, set(), force=True) is False
+    assert h._GUID_INDEX_MOVIE == movies
+    assert h._GUID_INDEX_SHOW == shows
+    assert h._GUID_INDEX_COMPLETE is True
+
+
+def test_failed_forced_refresh_restores_valid_guid_index(monkeypatch) -> None:
+    h, adapter, _ses = _setup(monkeypatch)
+    assert h._build_guid_index(adapter, set(), force=True) is True
+    movies = dict(h._GUID_INDEX_MOVIE)
+    shows = dict(h._GUID_INDEX_SHOW)
+
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("Plex unavailable")
+
+    adapter.libraries = unavailable
+
+    assert h._build_guid_index(adapter, set(), force=True) is False
+    assert h._GUID_INDEX_MOVIE == movies
+    assert h._GUID_INDEX_SHOW == shows
+    assert h._GUID_INDEX_KEY == h._guid_index_key(adapter.client.server, set(), "default")
+    assert h._GUID_INDEX_COMPLETE is True
+
+
+def test_failed_forced_catalog_refresh_keeps_previous_guid_rows(monkeypatch) -> None:
+    h, adapter, _ses = _setup(monkeypatch)
+    assert h._build_guid_index(adapter, set(), force=True) is True
+    movies = dict(h._GUID_INDEX_MOVIE)
+    shows = dict(h._GUID_INDEX_SHOW)
+
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("Plex unavailable")
+
+    adapter.libraries = unavailable
+
+    catalog = h._build_history_catalog(adapter, set(), force=True, live=False)
+
+    assert catalog.guid_complete is False
+    assert h._GUID_INDEX_MOVIE == movies
+    assert h._GUID_INDEX_SHOW == shows
+    assert catalog.resolve({"type": "movie", "ids": {"tmdb": "603"}}, strict=True)[0] == "11"
+
+
+def test_complete_empty_guid_index_is_loaded_from_disk(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    srv = _Server()
+    srv.machineIdentifier = "server-1"
+    monkeypatch.setattr(
+        h,
+        "read_json",
+        lambda _path: {
+            "complete": True,
+            "machine_id": "server-1",
+            "allow": [],
+            "user_scope": "default",
+            "created_epoch": 0,
+            "movies": {},
+            "shows": {},
+        },
+    )
+    h._clear_guid_index()
+
+    assert h._load_guid_index(srv, set(), "default") is True
+    assert h._GUID_INDEX_MOVIE == {}
+    assert h._GUID_INDEX_SHOW == {}
+
+
+def test_guid_index_is_not_reused_across_selected_users(monkeypatch) -> None:
+    h, adapter, ses = _setup(monkeypatch)
+    adapter.user_scope = "user:first"
+    monkeypatch.setattr(h, "_user_scope_key", lambda current: current.user_scope)
+
+    assert h._build_guid_index(adapter, set(), force=True) is True
+    adapter.user_scope = "user:second"
+    assert h._build_guid_index(adapter, set()) is True
+
+    assert len(ses.calls) == 4
+    assert h._GUID_INDEX_KEY == h._guid_index_key(
+        adapter.client.server,
+        set(),
+        "user:second",
+    )
+
+
+def test_persisted_guid_index_requires_matching_user_scope(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    srv = _Server()
+    srv.machineIdentifier = "server-1"
+    monkeypatch.setattr(
+        h,
+        "read_json",
+        lambda _path: {
+            "complete": True,
+            "machine_id": "server-1",
+            "allow": [],
+            "user_scope": "user:first",
+            "created_epoch": 0,
+            "movies": {"plex:1": "1"},
+            "shows": {},
+        },
+    )
+    h._clear_guid_index()
+
+    assert h._load_guid_index(srv, set(), "user:second") is False
+    assert h._GUID_INDEX_MOVIE == {}
+
+
+def test_persisted_guid_index_expires_after_seven_days_by_default(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    srv = _Server()
+    srv.machineIdentifier = "server-1"
+    monkeypatch.delenv("CW_PLEX_GUID_INDEX_TTL_DAYS", raising=False)
+    monkeypatch.setattr(h.time, "time", lambda: 8 * 86400)
+    monkeypatch.setattr(
+        h,
+        "read_json",
+        lambda _path: {
+            "complete": True,
+            "machine_id": "server-1",
+            "allow": [],
+            "user_scope": "default",
+            "created_epoch": 1,
+            "movies": {"plex:1": "1"},
+            "shows": {},
+        },
+    )
+    h._clear_guid_index()
+
+    assert h._load_guid_index(srv, set(), "default") is False
+    assert h._GUID_INDEX_MOVIE == {}
+
+
+def test_persisted_guid_index_ttl_can_be_disabled_explicitly(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    srv = _Server()
+    srv.machineIdentifier = "server-1"
+    monkeypatch.setenv("CW_PLEX_GUID_INDEX_TTL_DAYS", "0")
+    monkeypatch.setattr(h.time, "time", lambda: 8 * 86400)
+    monkeypatch.setattr(
+        h,
+        "read_json",
+        lambda _path: {
+            "complete": True,
+            "machine_id": "server-1",
+            "allow": [],
+            "user_scope": "default",
+            "created_epoch": 1,
+            "movies": {"plex:1": "1"},
+            "shows": {},
+        },
+    )
+    h._clear_guid_index()
+
+    assert h._load_guid_index(srv, set(), "default") is True
+    assert h._GUID_INDEX_MOVIE == {"plex:1": "1"}
+
+
+def test_expired_history_catalog_forces_guid_refresh(monkeypatch) -> None:
+    from providers.sync.plex import _history as h
+
+    cached = h.HistoryCatalog()
+    refreshed = h.HistoryCatalog()
+    calls: list[bool] = []
+    monkeypatch.setattr(h, "_catalog_cache_key", lambda *_a, **_k: "catalog-key")
+    monkeypatch.setattr(
+        h,
+        "_build_history_catalog",
+        lambda _adapter, _allow, *, force=False, **_kwargs: (
+            calls.append(force) or refreshed
+        ),
+    )
+    monkeypatch.setattr(h.time, "time", lambda: h._CATALOG_MEM_TTL_SEC + 1)
+    monkeypatch.setitem(h._CATALOG_CACHE, "cat", cached)
+    monkeypatch.setitem(h._CATALOG_CACHE, "key", "catalog-key")
+    monkeypatch.setitem(h._CATALOG_CACHE, "ts", 0.0)
+
+    assert h._get_history_catalog(object(), set()) is refreshed
+    assert calls == [True]
 
 
 def test_row_guids_reads_attribute_and_children() -> None:

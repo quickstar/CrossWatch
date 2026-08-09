@@ -1540,6 +1540,18 @@ class _PlexOPS:
         except Exception:
             return None
 
+    def filter_add_candidates(
+        self,
+        cfg: Mapping[str, Any],
+        *,
+        feature: str,
+        items: Iterable[Mapping[str, Any]] | None,
+    ) -> Mapping[str, Any]:
+        rows = list(items or [])
+        if str(feature or "").lower() != "history" or feat_history is None:
+            return {"items": rows, "skipped_count": 0, "reason_counts": {}}
+        return feat_history.filter_add_candidates(self._adapter(cfg), rows)
+
     def is_configured(self, cfg: Mapping[str, Any]) -> bool:
         c = cfg or {}
         pl = c.get("plex") or {}
