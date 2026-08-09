@@ -326,7 +326,7 @@ def filter_destination_add_candidates(
         skipped_explicit = None
     skipped = (
         skipped_explicit
-        if skipped_explicit is not None and 0 <= skipped_explicit <= len(rows)
+        if skipped_explicit == skipped_fallback
         else skipped_fallback
     )
     if not skipped:

@@ -57,7 +57,7 @@ def test_destination_filter_reports_expected_skips() -> None:
     ]
 
 
-def test_destination_filter_trusts_explicit_skip_count() -> None:
+def test_destination_filter_reconciles_inconsistent_skip_count() -> None:
     class _Ops:
         def filter_add_candidates(self, _cfg, *, feature, items):
             rows = list(items)
@@ -75,9 +75,21 @@ def test_destination_filter_trusts_explicit_skip_count() -> None:
     )
 
     assert kept == _items()[:1]
-    assert skipped == 0
+    assert skipped == 1
     assert skipped_items == []
-    assert events == []
+    assert events == [
+        (
+            "add_candidates:filtered",
+            {
+                "dst": "PLEX",
+                "feature": "history",
+                "before": 2,
+                "after": 1,
+                "skipped": 1,
+                "reason_counts": {},
+            },
+        )
+    ]
 
 
 def test_destination_filter_rejects_injected_candidates() -> None:
