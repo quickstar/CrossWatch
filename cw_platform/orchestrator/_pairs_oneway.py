@@ -297,6 +297,28 @@ def filter_destination_add_candidates(
         return rows, 0, []
 
     kept = [dict(item) for item in result.get("items") or [] if isinstance(item, Mapping)]
+
+    def _candidate_identity(item: Mapping[str, Any]) -> str:
+        if str(feature or "").lower() == "history":
+            return history_sync_key(item, event_mode=True)
+        return _ck(item) or ""
+
+    available: dict[str, int] = {}
+    for item in rows:
+        key = _candidate_identity(item)
+        if key:
+            available[key] = available.get(key, 0) + 1
+    for item in kept:
+        key = _candidate_identity(item)
+        if not key or available.get(key, 0) <= 0:
+            dbg(
+                "add_candidates.filter_invalid_subset",
+                dst=dst_name,
+                feature=feature,
+            )
+            return rows, 0, []
+        available[key] -= 1
+
     skipped_fallback = max(0, len(rows) - len(kept))
     try:
         skipped_explicit = int(result["skipped_count"]) if "skipped_count" in result else None

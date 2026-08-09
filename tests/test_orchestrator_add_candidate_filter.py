@@ -80,6 +80,31 @@ def test_destination_filter_trusts_explicit_skip_count() -> None:
     assert events == []
 
 
+def test_destination_filter_rejects_injected_candidates() -> None:
+    class _Ops:
+        def filter_add_candidates(self, _cfg, *, feature, items):
+            return {
+                "items": [{"type": "movie", "ids": {"imdb": "tt9999999"}}],
+                "skipped_count": 1,
+            }
+
+    debug: list[tuple[tuple, dict]] = []
+    kept, skipped, skipped_items = filter_destination_add_candidates(
+        _Ops(),
+        cfg={},
+        feature="history",
+        items=_items(),
+        emit=lambda *_a, **_k: None,
+        dbg=lambda *args, **kwargs: debug.append((args, kwargs)),
+        dst_name="PLEX",
+    )
+
+    assert kept == _items()
+    assert skipped == 0
+    assert skipped_items == []
+    assert debug[0][0] == ("add_candidates.filter_invalid_subset",)
+
+
 def test_destination_filter_fails_open() -> None:
     class _Ops:
         def filter_add_candidates(self, _cfg, *, feature, items):
@@ -119,7 +144,7 @@ class _HistoryOps:
         return {"history": True}
 
     def capabilities(self) -> Mapping[str, Any]:
-        return {"history": {"index_semantics": "present"}}
+        return {"bidirectional": True, "history": {"index_semantics": "present"}}
 
     def is_configured(self, _cfg: Mapping[str, Any]) -> bool:
         return True
@@ -219,3 +244,56 @@ def test_orchestrator_applies_only_destination_candidates(
         assert filtered_clear in cleared
     else:
         assert filtered_clear not in cleared
+
+
+def test_bidirectional_orchestrator_applies_destination_candidates(
+    config_base: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    src = _HistoryOps(
+        "SRC",
+        {
+            "imdb:tt0000001": {
+                "type": "movie",
+                "ids": {"imdb": "tt0000001"},
+                "watched_at": "2026-08-08T10:00:00Z",
+            },
+            "imdb:tt0000002": {
+                "type": "movie",
+                "ids": {"imdb": "tt0000002"},
+                "watched_at": "2026-08-08T11:00:00Z",
+            },
+        },
+    )
+    dst = _HistoryOps("DST", {}, keep_first=True)
+    monkeypatch.setattr(
+        "cw_platform.orchestrator.facade.load_sync_providers",
+        lambda: {"SRC": src, "DST": dst},
+    )
+    monkeypatch.setattr(
+        "cw_platform.orchestrator._snapshots.provider_configured",
+        lambda _cfg, _name: True,
+    )
+
+    result = Orchestrator(
+        {
+            "runtime": {"snapshot_ttl_sec": 0},
+            "sync": {"enable_add": True, "enable_remove": False},
+            "pairs": [
+                {
+                    "id": "history-filter-two-way",
+                    "enabled": True,
+                    "source": "SRC",
+                    "target": "DST",
+                    "mode": "two-way",
+                    "feature": "history",
+                    "features": {"history": {"enable": True, "add": True, "remove": False}},
+                }
+            ],
+        }
+    ).run(write_state_json=False)
+
+    assert result["added"] == 1
+    assert result["skipped"] == 1
+    assert [item["ids"]["imdb"] for item in dst.add_calls[0]] == ["tt0000001"]
+    assert src.add_calls == []

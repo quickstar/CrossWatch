@@ -9,7 +9,17 @@ import os
 import re
 import datetime as _dt
 
-from ._pairs_oneway import _emit_item_failures, _emit_item_resolutions, compute_effective_add, compute_effective_remove, is_remove_retry_reason, load_feature_state, resolve_baseline_writes, select_baseline_keys
+from ._pairs_oneway import (
+    _emit_item_failures,
+    _emit_item_resolutions,
+    compute_effective_add,
+    compute_effective_remove,
+    filter_destination_add_candidates,
+    is_remove_retry_reason,
+    load_feature_state,
+    resolve_baseline_writes,
+    select_baseline_keys,
+)
 
 try:
     from ._pairs_oneway import (
@@ -1700,6 +1710,36 @@ def _two_way_sync(  # pyright: ignore[reportGeneralTypeIssues]
         except Exception:
             pass
 
+    def _filter_destination(
+        dst_ops: Any,
+        dst_name: str,
+        items: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        filtered, skipped, skipped_items = filter_destination_add_candidates(
+            dst_ops,
+            cfg=provider_cfg,
+            feature=feature,
+            items=items,
+            emit=emit,
+            dbg=dbg,
+            dst_name=dst_name,
+        )
+        if skipped_items and not dry_run_flag:
+            filtered_keys = [key for key in (_sync_key(item) for item in skipped_items) if key]
+            if filtered_keys:
+                cleared = clear_unresolved(dst_name, feature, filtered_keys)
+                if int((cleared or {}).get("count", 0) or 0):
+                    emit(
+                        "add_candidates:unresolved_cleared",
+                        dst=dst_name,
+                        feature=feature,
+                        count=int(cleared.get("count", 0) or 0),
+                    )
+        return filtered, skipped
+
+    add_to_A, add_candidates_skipped_A = _filter_destination(aops, a, add_to_A)
+    add_to_B, add_candidates_skipped_B = _filter_destination(bops, b, add_to_B)
+
     bb = ((cfg or {}).get("blackbox") if isinstance(cfg, dict) else getattr(cfg, "blackbox", {})) or {}
     use_phantoms = bool(bb.get("enabled") and bb.get("block_adds", True))
     bb_ttl_days = int(bb.get("cooldown_days") or 0) or None
@@ -2457,7 +2497,8 @@ def _two_way_sync(  # pyright: ignore[reportGeneralTypeIssues]
          rem_from_A=eff_rem_A,
          rem_from_B=eff_rem_B)
 
-    skipped_total = int(resA_upd.get("skipped", 0)) + int(resB_upd.get("skipped", 0)) + \
+    skipped_total = int(add_candidates_skipped_A) + int(add_candidates_skipped_B) + \
+                    int(resA_upd.get("skipped", 0)) + int(resB_upd.get("skipped", 0)) + \
                     int(resA_add.get("skipped", 0)) + int(resB_add.get("skipped", 0)) + \
                     int(resA_rem.get("skipped", 0)) + int(resB_rem.get("skipped", 0))
     errors_total = int(resA_upd.get("errors", 0)) + int(resB_upd.get("errors", 0)) + \
