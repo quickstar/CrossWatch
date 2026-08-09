@@ -158,6 +158,18 @@ def test_complete_empty_guid_index_is_reused_in_memory(monkeypatch) -> None:
     assert ses.calls == []
 
 
+def test_incomplete_guid_index_is_retried(monkeypatch) -> None:
+    h, adapter, ses = _setup(monkeypatch)
+    srv = adapter.client.server
+    h._GUID_INDEX_KEY = h._guid_index_key(srv, set())
+    h._GUID_INDEX_MOVIE["imdb://stale"] = "stale"
+    h._GUID_INDEX_COMPLETE = False
+
+    assert h._build_guid_index(adapter, set()) is True
+    assert len(ses.calls) == 2
+    assert "imdb://stale" not in h._GUID_INDEX_MOVIE
+
+
 def test_complete_empty_guid_index_is_loaded_from_disk(monkeypatch) -> None:
     from providers.sync.plex import _history as h
 

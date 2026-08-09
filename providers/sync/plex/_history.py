@@ -259,10 +259,8 @@ def _build_guid_index(adapter: Any, allow: set[str], *, force: bool = False) -> 
     global _GUID_INDEX_COMPLETE, _GUID_INDEX_KEY
     srv = getattr(getattr(adapter, "client", None), "server", None)
     key = _guid_index_key(srv, allow)
-    if (not force) and _GUID_INDEX_KEY == key and (
-        _GUID_INDEX_COMPLETE or _GUID_INDEX_MOVIE or _GUID_INDEX_SHOW
-    ):
-        return _GUID_INDEX_COMPLETE
+    if (not force) and _GUID_INDEX_KEY == key and _GUID_INDEX_COMPLETE:
+        return True
     _clear_guid_index()
     if not srv:
         return False
