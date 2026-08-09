@@ -113,6 +113,50 @@ def test_filter_add_candidates_refreshes_catalog_before_dropping_movie(monkeypat
     assert calls == [False, True]
 
 
+def test_filter_add_candidates_refreshes_guid_catalog_for_episode(monkeypatch) -> None:
+    cached = history.HistoryCatalog()
+    cached.guid_complete = True
+    refreshed = history.HistoryCatalog()
+    refreshed.guid_complete = True
+    refreshed.add({"rk": "show-1", "type": "show", "ids": {"tvdb": "81797"}})
+    calls: list[bool] = []
+
+    def get_catalog(_adapter, _allow, *, force=False):
+        calls.append(force)
+        return refreshed if force else cached
+
+    def populate(_adapter, _allow, catalog):
+        catalog.add(
+            {
+                "rk": "episode-1",
+                "type": "episode",
+                "show_rk": "show-1",
+                "show_ids": {"tvdb": "81797"},
+                "season": 1,
+                "episode": 1,
+            }
+        )
+        catalog.episode_complete = True
+        return 1
+
+    monkeypatch.setattr(history, "_get_history_catalog", get_catalog)
+    monkeypatch.setattr(history, "_populate_catalog_episode_leaves", populate)
+    monkeypatch.setattr(history, "_store_history_catalog", lambda *_a, **_k: None)
+    monkeypatch.setattr(history, "plex_feature_library_ids", lambda *_a, **_k: set())
+    item = {
+        "type": "episode",
+        "show_ids": {"tvdb": "81797"},
+        "season": 1,
+        "episode": 1,
+    }
+
+    result = history.filter_add_candidates(object(), [item])
+
+    assert result["items"] == [item]
+    assert result["skipped_count"] == 0
+    assert calls == [False, True]
+
+
 def test_filter_add_candidates_keeps_ambiguous_items_for_real_resolution(
     monkeypatch,
 ) -> None:

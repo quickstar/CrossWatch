@@ -621,8 +621,7 @@ def filter_add_candidates(
     catalog = _get_history_catalog(adapter, allow)
 
     if any(
-        str(item.get("type") or "movie").strip().lower() == "movie"
-        and catalog.resolve(item, strict=True)[1] == CLASS_NOT_IN_PLEX_CATALOG
+        catalog.resolve(item, strict=True)[1] == CLASS_NOT_IN_PLEX_CATALOG
         for item in rows
     ):
         catalog = _get_history_catalog(adapter, allow, force=True)
