@@ -103,9 +103,17 @@ def filter_history_events(idx: Mapping[str, Any], *, event_mode: bool) -> dict[s
     for key, value in (idx or {}).items():
         if not isinstance(value, Mapping):
             continue
-        if not (value.get("watched_at") or value.get("last_watched_at")):
+        watched_at = value.get("watched_at") or value.get("last_watched_at")
+        stremio_changed_at = value.get("_stremio_changed_at")
+        if not (watched_at or stremio_changed_at):
             continue
-        item = minimal_history_item(value, key, event_mode=event_mode)
+        normalized = dict(value)
+        if not watched_at:
+            # Stremio exposes only a series-level change time for its watched
+            # episode bitfield. Keep that distinction in the provider index,
+            # but promote it here so presence-only history can be written.
+            normalized["watched_at"] = stremio_changed_at
+        item = minimal_history_item(normalized, key, event_mode=event_mode)
         sync_key = history_sync_key(item, key, event_mode=event_mode)
         if sync_key:
             out[sync_key] = item

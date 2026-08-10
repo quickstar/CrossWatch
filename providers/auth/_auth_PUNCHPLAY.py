@@ -636,8 +636,8 @@ def _allow_forced_refresh(instance_id: Any) -> bool:
     inst = normalize_instance_id(instance_id)
     now = time.monotonic()
     with _FORCED_REFRESH_GUARD:
-        last = _LAST_FORCED_REFRESH.get(inst, 0.0)
-        if now - last < FORCED_REFRESH_MIN_INTERVAL:
+        last = _LAST_FORCED_REFRESH.get(inst)
+        if last is not None and now - last < FORCED_REFRESH_MIN_INTERVAL:
             return False
         _LAST_FORCED_REFRESH[inst] = now
         return True
