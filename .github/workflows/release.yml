@@ -9,7 +9,7 @@ on:
         options: [patch, minor, major]
         default: patch
       version:
-        description: "Explicit version, e.g. 0.11.0 (overrides bump)"
+        description: "Explicit version, e.g. 0.11.0 or 0.11.1-quickstar.1 (overrides bump)"
         type: string
       latest:
         description: "Also push the :latest tag"
@@ -41,10 +41,24 @@ jobs:
       packages: write
       discussions: write
     steps:
-      - name: Check branch
-        if: github.ref_name != 'main'
+      - name: Check release ref
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          IN_VERSION: ${{ inputs.version }}
         run: |
-          echo "Run this from the main branch, got ${{ github.ref_name }}"
+          set -euo pipefail
+
+          if [ "${REF_NAME}" = "main" ]; then
+            exit 0
+          fi
+
+          version="${IN_VERSION#v}"
+          if [ "${REF_NAME}" = "fix-stremio-episode-history" ] \
+            && [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-quickstar\.[0-9]+$ ]]; then
+            exit 0
+          fi
+
+          echo "Release ref ${REF_NAME} is not allowed for version ${version:-unset}"
           exit 1
 
       - name: Check Docker Hub credentials
@@ -77,6 +91,7 @@ jobs:
           else
             base="${last#v}"
             base="${base:-0.0.0}"
+            base="${base%%-*}"
             IFS=. read -r major minor patch <<< "${base}"
             case "${IN_BUMP}" in
               major) major=$((major + 1)); minor=0; patch=0 ;;
@@ -87,7 +102,7 @@ jobs:
             version="${major}.${minor}.${patch}"
           fi
 
-          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
             echo "Not a valid version: ${version}"
             exit 1
           fi
