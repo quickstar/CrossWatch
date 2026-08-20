@@ -61,15 +61,30 @@ jobs:
           echo "Release ref ${REF_NAME} is not allowed for version ${version:-unset}"
           exit 1
 
-      - name: Check Docker Hub credentials
+      - name: Resolve image registries
+        id: registries
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
-            echo "Missing DOCKERHUB_USERNAME or DOCKERHUB_TOKEN repository secret"
-            exit 1
+          set -euo pipefail
+
+          dockerhub_enabled=false
+          if [ -n "${DOCKERHUB_USERNAME}" ] && [ -n "${DOCKERHUB_TOKEN}" ]; then
+            dockerhub_enabled=true
+          else
+            echo "::warning::Docker Hub credentials are not configured; publishing to GHCR only"
           fi
+
+          echo "dockerhub_enabled=${dockerhub_enabled}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'images<<EOF'
+            echo "${IMAGE}"
+            if [ "${dockerhub_enabled}" = "true" ]; then
+              echo "${DOCKERHUB_IMAGE}"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v6
         with:
@@ -145,7 +160,9 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/login-action@v3
+      - name: Log in to Docker Hub
+        if: steps.registries.outputs.dockerhub_enabled == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -153,9 +170,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: |
-            ${{ env.IMAGE }}
-            ${{ env.DOCKERHUB_IMAGE }}
+          images: ${{ steps.registries.outputs.images }}
           tags: |
             type=raw,value=${{ steps.ver.outputs.version }}
             type=raw,value=latest,enable=${{ inputs.latest }}
@@ -210,12 +225,16 @@ jobs:
           gh release create "${TAG}" "${args[@]}"
 
       - name: Summary
+        env:
+          DOCKERHUB_ENABLED: ${{ steps.registries.outputs.dockerhub_enabled }}
         run: |
           {
             echo "### Released ${{ steps.ver.outputs.tag }}"
             echo
             echo '```'
             echo "docker pull ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}"
-            echo "docker pull ${{ env.DOCKERHUB_IMAGE }}:${{ steps.ver.outputs.version }}"
+            if [ "${DOCKERHUB_ENABLED}" = "true" ]; then
+              echo "docker pull ${{ env.DOCKERHUB_IMAGE }}:${{ steps.ver.outputs.version }}"
+            fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
